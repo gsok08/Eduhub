@@ -2,9 +2,11 @@ package com.example.eduhub20.ui.auth
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -97,221 +100,240 @@ fun LoginScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .imePadding()
-                .background(MaterialTheme.colorScheme.background)
+                .background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 24.dp, vertical = 24.dp),
+                    .padding(horizontal = 24.dp, vertical = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Logo Header
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(EduHubPrimary.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.School,
-                        contentDescription = "EduHub Logo",
-                        tint = EduHubPrimary,
-                        modifier = Modifier.size(44.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = "EduHub",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                Text(
-                    text = "AMIT 3353 Mobile Application Development",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Role Switcher: Student vs Lecturer
-                TabRow(
-                    selectedTabIndex = uiState.selectedRole.ordinal,
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp)),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        .widthIn(max = 440.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Tab(
-                        selected = uiState.selectedRole == UserRole.STUDENT,
-                        onClick = { viewModel.setSelectedRole(UserRole.STUDENT) },
-                        text = { Text("Student", fontWeight = FontWeight.SemiBold) }
-                    )
-                    Tab(
-                        selected = uiState.selectedRole == UserRole.LECTURER,
-                        onClick = { viewModel.setSelectedRole(UserRole.LECTURER) },
-                        text = { Text("Lecturer", fontWeight = FontWeight.SemiBold) }
-                    )
-                }
+                    // Logo Header
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(EduHubPrimary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = "EduHub Logo",
+                            tint = EduHubPrimary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                // Auth Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column(
+                    Text(
+                        text = "EduHub",
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Text(
+                        text = "AMIT 3353 Mobile Application Development",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Role Switcher: Student vs Lecturer
+                    TabRow(
+                        selectedTabIndex = uiState.selectedRole.ordinal,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                     ) {
-                        if (uiState.selectedRole == UserRole.STUDENT) {
-                            // Student Sign In vs Sign Up toggle
+                        Tab(
+                            selected = uiState.selectedRole == UserRole.STUDENT,
+                            onClick = { viewModel.setSelectedRole(UserRole.STUDENT) },
+                            text = { Text("Student", fontWeight = FontWeight.SemiBold) }
+                        )
+                        Tab(
+                            selected = uiState.selectedRole == UserRole.LECTURER,
+                            onClick = { viewModel.setSelectedRole(UserRole.LECTURER) },
+                            text = { Text("Lecturer", fontWeight = FontWeight.SemiBold) }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Auth Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp)
+                        ) {
+                            if (uiState.selectedRole == UserRole.STUDENT) {
+                                // Student Sign In vs Sign Up toggle
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (uiState.isSignUpMode) "Create Student Account" else "Student Login",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    TextButton(
+                                        onClick = { viewModel.setSignUpMode(!uiState.isSignUpMode) },
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                    ) {
+                                        Text(
+                                            text = if (uiState.isSignUpMode) "Sign In" else "Sign Up",
+                                            fontWeight = FontWeight.Bold,
+                                            color = EduHubPrimary
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "Lecturer Portal Login",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = EduHubAccentOrange
+                                )
+                                Text(
+                                    text = "Preset credentials for lecturer course management",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Email Field
+                            OutlinedTextField(
+                                value = uiState.email,
+                                onValueChange = { viewModel.onEmailChanged(it) },
+                                label = { Text("Email Address") },
+                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                                keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Password Field
+                            OutlinedTextField(
+                                value = uiState.password,
+                                onValueChange = { viewModel.onPasswordChanged(it) },
+                                label = { Text("Password") },
+                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                                trailingIcon = {
+                                    IconButton(onClick = { viewModel.togglePasswordVisibility() }) {
+                                        Icon(
+                                            imageVector = if (uiState.isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = null
+                                        )
+                                    }
+                                },
+                                singleLine = true,
+                                visualTransformation = if (uiState.isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = {
+                                    focusManager.clearFocus()
+                                    viewModel.submitLogin()
+                                }),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Remember Me (Left) and Forgot Password (Right) Row
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = if (uiState.isSignUpMode) "Create Student Account" else "Student Login",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                TextButton(onClick = { viewModel.setSignUpMode(!uiState.isSignUpMode) }) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { viewModel.toggleRememberMe(!uiState.rememberMe) }
+                                ) {
+                                    Checkbox(
+                                        checked = uiState.rememberMe,
+                                        onCheckedChange = { viewModel.toggleRememberMe(it) },
+                                        colors = CheckboxDefaults.colors(checkedColor = EduHubPrimary)
+                                    )
+                                    Text("Remember me", style = MaterialTheme.typography.bodySmall)
+                                }
+
+                                TextButton(
+                                    onClick = { viewModel.showForgotPasswordDialog(true) },
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                ) {
                                     Text(
-                                        text = if (uiState.isSignUpMode) "Sign In" else "Sign Up",
+                                        text = "Forgot Password?",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = EduHubPrimary
                                     )
                                 }
                             }
-                        } else {
-                            Text(
-                                text = "Lecturer Portal Login",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = EduHubAccentOrange
-                            )
-                            Text(
-                                text = "Constant preset credentials for lecture management",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
 
-                        // Email Field
-                        OutlinedTextField(
-                            value = uiState.email,
-                            onValueChange = { viewModel.onEmailChanged(it) },
-                            label = { Text("User ID / Email") },
-                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
-                            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Password Field
-                        OutlinedTextField(
-                            value = uiState.password,
-                            onValueChange = { viewModel.onPasswordChanged(it) },
-                            label = { Text("Password") },
-                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                            trailingIcon = {
-                                IconButton(onClick = { viewModel.togglePasswordVisibility() }) {
-                                    Icon(
-                                        imageVector = if (uiState.isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        contentDescription = null
+                            // Submit Button
+                            Button(
+                                onClick = {
+                                    focusManager.clearFocus()
+                                    viewModel.submitLogin()
+                                },
+                                enabled = !uiState.isLoading,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (uiState.selectedRole == UserRole.LECTURER) EduHubAccentOrange else EduHubPrimary
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                            ) {
+                                if (uiState.isLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White)
+                                } else {
+                                    Text(
+                                        text = if (uiState.selectedRole == UserRole.LECTURER) "Lecturer Sign In" else if (uiState.isSignUpMode) "Create Account" else "Login",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
                                     )
                                 }
-                            },
-                            singleLine = true,
-                            visualTransformation = if (uiState.isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = {
-                                focusManager.clearFocus()
-                                viewModel.submitLogin()
-                            }),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Remember Me and Forgot Password row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = uiState.rememberMe,
-                                    onCheckedChange = { viewModel.toggleRememberMe(it) },
-                                    colors = CheckboxDefaults.colors(checkedColor = EduHubPrimary)
-                                )
-                                Text("Remember me", style = MaterialTheme.typography.bodySmall)
                             }
 
-                            TextButton(onClick = { viewModel.showForgotPasswordDialog(true) }) {
-                                Text(
-                                    text = "Forgot Password?",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = EduHubPrimary
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Submit Button
-                        Button(
-                            onClick = {
-                                focusManager.clearFocus()
-                                viewModel.submitLogin()
-                            },
-                            enabled = !uiState.isLoading,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (uiState.selectedRole == UserRole.LECTURER) EduHubAccentOrange else EduHubPrimary
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                        ) {
-                            if (uiState.isLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.White)
-                            } else {
-                                Text(
-                                    text = if (uiState.selectedRole == UserRole.LECTURER) "Lecturer Sign In" else if (uiState.isSignUpMode) "Create Account" else "Login",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp
-                                )
-                            }
-                        }
-
-                        // Quick 1-Click Lecturer Login Helper
-                        if (uiState.selectedRole == UserRole.LECTURER) {
-                            Spacer(modifier = Modifier.height(10.dp))
-                            OutlinedButton(
-                                onClick = { viewModel.quickLecturerLogin() },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Quick 1-Click Lecturer Login", style = MaterialTheme.typography.bodySmall)
+                            // Quick 1-Click Lecturer Login Helper
+                            if (uiState.selectedRole == UserRole.LECTURER) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                OutlinedButton(
+                                    onClick = { viewModel.quickLecturerLogin() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Quick 1-Click Lecturer Login", style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
                     }

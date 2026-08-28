@@ -44,11 +44,11 @@ fun HomeScreen(
     val courses = remember { mutableStateListOf(*CourseRepository.getCourses().toTypedArray()) }
 
     // Global search
-    var searchQuery      by remember { mutableStateOf("") }
-    var searchActive     by remember { mutableStateOf(false) }
-    var showJoinDialog   by remember { mutableStateOf(false) }
-    var joinCode         by remember { mutableStateOf("") }
-    var joinError        by remember { mutableStateOf<String?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var searchActive by remember { mutableStateOf(false) }
+    var showJoinDialog by remember { mutableStateOf(false) }
+    var joinCode by remember { mutableStateOf("") }
+    var joinError by remember { mutableStateOf<String?>(null) }
 
     // Global search results
     val matchedCourses = if (searchQuery.isBlank()) emptyList()
@@ -76,212 +76,238 @@ fun HomeScreen(
         },
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(horizontal = 20.dp, vertical = 16.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.TopCenter
         ) {
-            // ── Top Bar ────────────────────────────────────────────
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onNavigateToProfile() }
-                    ) {
-                        Box(
-                            modifier = Modifier.size(44.dp).clip(CircleShape).background(EduHubPrimary.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = EduHubPrimary, modifier = Modifier.size(34.dp))
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text("Welcome back!", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(currentUser?.name ?: "User", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    IconButton(onClick = {}) {
-                        Icon(Icons.Default.Notifications, contentDescription = "Notifications")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // ── Global Search Bar ──────────────────────────────────
-            item {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it; searchActive = it.isNotBlank() },
-                    placeholder = { Text("Search courses, notes, papers...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotBlank()) {
-                            IconButton(onClick = { searchQuery = ""; searchActive = false }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // ── Global Search Results ──────────────────────────────
-            if (searchActive) {
-                if (matchedCourses.isEmpty() && matchedNotes.isEmpty() && matchedPapers.isEmpty()) {
-                    item {
-                        Card(shape = RoundedCornerShape(12.dp)) {
-                            Text("No results found for \"$searchQuery\"",
-                                modifier = Modifier.padding(16.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                if (matchedCourses.isNotEmpty()) {
-                    item { Text("Courses", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = EduHubPrimary) }
-                    items(matchedCourses) { c ->
-                        Spacer(modifier = Modifier.height(8.dp))
-                        CourseCardItem(course = c, onClick = { onNavigateToCourse(c.id) })
-                    }
-                    item { Spacer(modifier = Modifier.height(12.dp)) }
-                }
-
-                if (matchedNotes.isNotEmpty()) {
-                    item { Text("Lecture Notes", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = EduHubAccentGreen) }
-                    items(matchedNotes) { n ->
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Description, contentDescription = null, tint = EduHubAccentGreen)
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(n.chapterTitle, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("${n.courseCode} · ${n.semesterPeriod}", style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
-                    item { Spacer(modifier = Modifier.height(12.dp)) }
-                }
-
-                if (matchedPapers.isNotEmpty()) {
-                    item { Text("Past Year Papers", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = EduHubAccentOrange) }
-                    items(matchedPapers) { p ->
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Article, contentDescription = null, tint = EduHubAccentOrange)
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text(p.session, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("${p.courseCode} · ${p.subjectCategory} · ${p.year}",
-                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                return@LazyColumn
-            }
-
-            // ── Lecturer Portal Banner ─────────────────────────────
-            if (currentUser?.role == UserRole.LECTURER) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .widthIn(max = 680.dp)
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
+            ) {
+                // ── Top Bar ────────────────────────────────────────────
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = EduHubAccentOrange.copy(alpha = 0.15f)),
-                        shape  = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth().clickable { onNavigateToLecturerPortal() }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
-                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            modifier = Modifier.clickable { onNavigateToProfile() }
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.School, contentDescription = null, tint = EduHubAccentOrange)
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text("Lecturer Portal", fontWeight = FontWeight.Bold, color = EduHubAccentOrange)
-                                    Text("Upload notes & announcements", style = MaterialTheme.typography.bodySmall)
-                                }
+                            Box(
+                                modifier = Modifier.size(44.dp).clip(CircleShape).background(EduHubPrimary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = EduHubPrimary, modifier = Modifier.size(34.dp))
                             }
-                            Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = null,
-                                tint = EduHubAccentOrange, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text("Welcome back!", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(currentUser?.name ?: "User", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        IconButton(onClick = {}) {
+                            Icon(Icons.Default.Notifications, contentDescription = "Notifications")
                         }
                     }
+
                     Spacer(modifier = Modifier.height(16.dp))
                 }
-            }
 
-            // ── My Courses Header ──────────────────────────────────
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (currentUser?.role == UserRole.LECTURER) "Courses I Teach" else "My Courses",
-                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold
-                    )
-                    if (currentUser?.role == UserRole.STUDENT) {
-                        TextButton(onClick = { showJoinDialog = true }) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = EduHubPrimary)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Join Course", fontWeight = FontWeight.Bold, color = EduHubPrimary)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            // ── Course List (empty state) ──────────────────────────
-            if (courses.isEmpty()) {
+                // ── Global Search Bar ──────────────────────────────────
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape  = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(32.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(Icons.Default.School, contentDescription = null,
-                                modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
-                            Spacer(modifier = Modifier.height(12.dp))
-                            if (currentUser?.role == UserRole.LECTURER) {
-                                Text("No courses yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
-                                Text("Go to your Lecturer Portal to create your first course.",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Button(onClick = onNavigateToLecturerPortal) {
-                                    Text("Open Lecturer Portal")
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it; searchActive = it.isNotBlank() },
+                        placeholder = { Text("Search courses, notes, papers...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotBlank()) {
+                                IconButton(onClick = { searchQuery = ""; searchActive = false }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear")
                                 }
-                            } else {
-                                Text("You haven't joined any courses yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
-                                Text("Tap the '+' button below or 'Join Course' above to enroll with a code from your lecturer.",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // ── Global Search Results ──────────────────────────────
+                if (searchActive) {
+                    if (matchedCourses.isEmpty() && matchedNotes.isEmpty() && matchedPapers.isEmpty()) {
+                        item {
+                            Card(shape = RoundedCornerShape(12.dp)) {
+                                Text(
+                                    "No results found for \"$searchQuery\"",
+                                    modifier = Modifier.padding(16.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
+
+                    if (matchedCourses.isNotEmpty()) {
+                        item { Text("Courses", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = EduHubPrimary) }
+                        items(matchedCourses) { c ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            CourseCardItem(course = c, onClick = { onNavigateToCourse(c.id) })
+                        }
+                        item { Spacer(modifier = Modifier.height(12.dp)) }
+                    }
+
+                    if (matchedNotes.isNotEmpty()) {
+                        item { Text("Lecture Notes", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = EduHubAccentGreen) }
+                        items(matchedNotes) { n ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Description, contentDescription = null, tint = EduHubAccentGreen)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(n.chapterTitle, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text(
+                                            "${n.courseCode} · ${n.semesterPeriod}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        item { Spacer(modifier = Modifier.height(12.dp)) }
+                    }
+
+                    if (matchedPapers.isNotEmpty()) {
+                        item { Text("Past Year Papers", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = EduHubAccentOrange) }
+                        items(matchedPapers) { p ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Article, contentDescription = null, tint = EduHubAccentOrange)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(p.session, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        Text(
+                                            "${p.courseCode} · ${p.subjectCategory} · ${p.year}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    return@LazyColumn
                 }
-            } else {
-                items(courses) { course ->
-                    CourseCardItem(course = course, onClick = { onNavigateToCourse(course.id) })
+
+                // ── Lecturer Portal Banner ─────────────────────────────
+                if (currentUser?.role == UserRole.LECTURER) {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = EduHubAccentOrange.copy(alpha = 0.15f)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { onNavigateToLecturerPortal() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.School, contentDescription = null, tint = EduHubAccentOrange)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("Lecturer Portal", fontWeight = FontWeight.Bold, color = EduHubAccentOrange)
+                                        Text("Upload notes & announcements", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForwardIos, contentDescription = null,
+                                    tint = EduHubAccentOrange, modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
+
+                // ── My Courses Header ──────────────────────────────────
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (currentUser?.role == UserRole.LECTURER) "Courses I Teach" else "My Courses",
+                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold
+                        )
+                        if (currentUser?.role == UserRole.STUDENT) {
+                            TextButton(onClick = { showJoinDialog = true }) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = EduHubPrimary)
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Join Course", fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                 }
-            }
 
-            item { Spacer(modifier = Modifier.height(80.dp)) } // Space for FAB
+                // ── Course List (empty state) ──────────────────────────
+                if (courses.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    Icons.Default.School, contentDescription = null,
+                                    modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                if (currentUser?.role == UserRole.LECTURER) {
+                                    Text("No courses yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "Go to your Lecturer Portal to create your first course.",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Button(onClick = onNavigateToLecturerPortal) {
+                                        Text("Open Lecturer Portal")
+                                    }
+                                } else {
+                                    Text("You haven't joined any courses yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "Tap the '+' button below or 'Join Course' above to enroll with a code from your lecturer.",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    items(courses) { course ->
+                        CourseCardItem(course = course, onClick = { onNavigateToCourse(course.id) })
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                }
+
+                item { Spacer(modifier = Modifier.height(80.dp)) } // Space for FAB
+            }
         }
     }
 
@@ -290,16 +316,16 @@ fun HomeScreen(
         AlertDialog(
             onDismissRequest = { showJoinDialog = false; joinError = null },
             title = { Text("Join Course") },
-            text  = {
+            text = {
                 Column {
                     Text("Enter the join code shared by your lecturer:", style = MaterialTheme.typography.bodySmall)
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = joinCode,
                         onValueChange = { joinCode = it.uppercase(); joinError = null },
-                        label    = { Text("Join Code (e.g. MAD335)") },
+                        label = { Text("Join Code (e.g. MAD335)") },
                         singleLine = true,
-                        isError  = joinError != null,
+                        isError = joinError != null,
                         modifier = Modifier.fillMaxWidth()
                     )
                     if (joinError != null) {
@@ -314,7 +340,7 @@ fun HomeScreen(
                         onSuccess = { c ->
                             if (!courses.any { it.id == c.id }) courses.add(0, c)
                             showJoinDialog = false
-                            joinCode  = ""
+                            joinCode = ""
                             joinError = null
                         },
                         onFailure = { e -> joinError = e.message }
@@ -330,13 +356,13 @@ fun HomeScreen(
 fun CourseCardItem(course: Course, onClick: () -> Unit) {
     val cardColor = when (course.iconCategory) {
         "CODE" -> CardCoral
-        "ENG"  -> CardBlue
+        "ENG" -> CardBlue
         "MATH" -> CardGreen
-        else   -> CardCoral
+        else -> CardCoral
     }
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape  = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor)
     ) {
         Row(
@@ -348,8 +374,10 @@ fun CourseCardItem(course: Course, onClick: () -> Unit) {
                 Text("${course.code} ${course.title}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1E293B))
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("Lecturer: ${course.lecturerName}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF475569))
-                Text("Join Code: ${course.joinCode}", style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
+                Text(
+                    "Join Code: ${course.joinCode}", style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold, color = Color(0xFF2563EB)
+                )
                 Spacer(modifier = Modifier.height(6.dp))
                 LinearProgressIndicator(
                     progress = { course.progress },
@@ -365,7 +393,7 @@ fun CourseCardItem(course: Course, onClick: () -> Unit) {
                 when (course.iconCategory) {
                     "CODE" -> Icon(Icons.Default.Code, contentDescription = null, tint = Color(0xFFE07A5F))
                     "MATH" -> Icon(Icons.Default.Functions, contentDescription = null, tint = Color(0xFF059669))
-                    else   -> Text("ENG", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF2563EB))
+                    else -> Text("ENG", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF2563EB))
                 }
             }
         }

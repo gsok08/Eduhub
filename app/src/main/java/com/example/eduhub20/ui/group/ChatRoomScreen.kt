@@ -22,8 +22,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.eduhub20.data.model.ChatMessage
+import com.example.eduhub20.data.repository.AuthRepository
 import com.example.eduhub20.data.repository.StudyGroupRepository
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -34,17 +37,31 @@ fun ChatRoomScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Load messages ONLY for this groupId
+    val currentUser = AuthRepository.currentUser.collectAsState().value
+    val currentUserName = currentUser?.name ?: "Me"
+    val currentUserRole = if (currentUser?.role?.name == "LECTURER") "Lecturer" else "Student"
+
     val messages = remember(groupId) {
         mutableStateListOf(*StudyGroupRepository.getChatMessages(groupId).toTypedArray())
     }
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    val scope     = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
 
-    // Scroll to bottom when new messages arrive
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    // Real-time live polling from Supabase (every 2.5 seconds) so other users' messages appear instantly
+    LaunchedEffect(groupId) {
+        while (isActive) {
+            val remoteMessages = StudyGroupRepository.fetchChatMessages(groupId, currentUserName)
+            if (remoteMessages.size != messages.size || remoteMessages != messages.toList()) {
+                val oldSize = messages.size
+                messages.clear()
+                messages.addAll(remoteMessages)
+                if (messages.size > oldSize && messages.isNotEmpty()) {
+                    listState.animateScrollToItem(messages.lastIndex)
+                }
+            }
+            delay(2500)
+        }
     }
 
     Scaffold(
@@ -53,8 +70,11 @@ fun ChatRoomScreen(
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(groupName, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text("${messages.size} messages", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "${messages.size} messages · Live Sync",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 navigationIcon = {
@@ -79,7 +99,7 @@ fun ChatRoomScreen(
         ) {
             if (messages.isEmpty()) {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("No messages yet. Say hi! 👋", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("No messages yet. Say hi to the study group! 👋", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(
@@ -118,21 +138,23 @@ fun ChatRoomScreen(
 
                 IconButton(
                     onClick = {
-                        if (inputText.isNotBlank()) {
-                            StudyGroupRepository.sendMessage(groupId, inputText.trim())
-                            messages.add(
-                                ChatMessage(
-                                    id         = java.util.UUID.randomUUID().toString(),
-                                    groupId    = groupId,
-                                    senderName = "Me",
-                                    senderRole = "Student",
-                                    message    = inputText.trim(),
-                                    timestamp  = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date()),
-                                    isFromMe   = true
-                                )
+                        val text = inputText.trim()
+                        if (text.isNotBlank()) {
+                            val now = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+                            val newMsg = ChatMessage(
+                                id = java.util.UUID.randomUUID().toString(),
+                                groupId = groupId,
+                                senderName = currentUserName,
+                                senderRole = currentUserRole,
+                                message = text,
+                                timestamp = now,
+                                isFromMe = true
                             )
+                            messages.add(newMsg)
                             inputText = ""
+
                             scope.launch {
+                                StudyGroupRepository.sendMessage(groupId, text, currentUserName, currentUserRole)
                                 if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
                             }
                         }
@@ -179,7 +201,7 @@ fun ChatBubble(message: ChatMessage) {
                         RoundedCornerShape(
                             topStart = 16.dp, topEnd = 16.dp,
                             bottomStart = if (isMe) 16.dp else 4.dp,
-                            bottomEnd   = if (isMe) 4.dp else 16.dp
+                            bottomEnd = if (isMe) 4.dp else 16.dp
                         )
                     )
                     .background(if (isMe) EduHubPrimary else MaterialTheme.colorScheme.surfaceVariant)

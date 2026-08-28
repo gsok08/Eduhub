@@ -11,7 +11,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 sealed class Screen(val route: String, val title: String = "", val icon: ImageVector? = null) {
     object Auth : Screen("auth")
     object Home : Screen("home", "Home", Icons.Default.Home)
-    object PastYear : Screen("past_year", "Past Year Paper", Icons.Default.Description)
+    object PastYear : Screen("past_year", "Past Paper", Icons.Default.Description)
     object NoteQuiz : Screen("note_quiz", "Note/Quiz", Icons.Default.EditNote)
     object Calendar : Screen("calendar", "Calendar", Icons.Default.CalendarMonth)
     object Group : Screen("group", "Group", Icons.Default.Groups)

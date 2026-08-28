@@ -1,8 +1,16 @@
 package com.example.eduhub20.ui.navigation
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -10,8 +18,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -49,16 +62,37 @@ fun EduHubNavHost(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val isTopLevelDestination = bottomNavScreens.any { it.route == currentRoute }
+    // For Lecturers, remove the Group chat system from the bottom navigation bar (4 tabs)
+    // For Students, show all 5 tabs including Group
+    val visibleTabs = remember(currentUser?.role) {
+        if (currentUser?.role == UserRole.LECTURER) {
+            bottomNavScreens.filter { it.route != Screen.Group.route }
+        } else {
+            bottomNavScreens
+        }
+    }
+
+    val isTopLevelDestination = visibleTabs.any { it.route == currentRoute }
 
     Scaffold(
         bottomBar = {
             if (isTopLevelDestination) {
                 NavigationBar(
-                    tonalElevation = 8.dp
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(elevation = 12.dp, shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                        .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp
                 ) {
-                    bottomNavScreens.forEach { screen ->
+                    visibleTabs.forEach { screen ->
                         val isSelected = currentRoute == screen.route
+                        val iconScale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.18f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+                            label = "NavIconScale"
+                        )
+
                         NavigationBarItem(
                             selected = isSelected,
                             onClick = {
@@ -72,20 +106,29 @@ fun EduHubNavHost(
                             },
                             icon = {
                                 screen.icon?.let {
-                                    Icon(imageVector = it, contentDescription = screen.title)
+                                    Icon(
+                                        imageVector = it,
+                                        contentDescription = screen.title,
+                                        modifier = Modifier.scale(iconScale)
+                                    )
                                 }
                             },
                             label = {
                                 Text(
                                     text = screen.title,
                                     fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = EduHubPrimary,
                                 selectedTextColor = EduHubPrimary,
-                                indicatorColor = EduHubPrimary.copy(alpha = 0.12f)
+                                indicatorColor = EduHubPrimary.copy(alpha = 0.12f),
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         )
                     }
@@ -96,7 +139,11 @@ fun EduHubNavHost(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = if (currentUser?.role == UserRole.LECTURER) Screen.LecturerDashboard.route else Screen.Home.route,
+            startDestination = Screen.Home.route,
+            enterTransition = { fadeIn(animationSpec = tween(160)) },
+            exitTransition = { fadeOut(animationSpec = tween(160)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(160)) },
+            popExitTransition = { fadeOut(animationSpec = tween(160)) },
             modifier = Modifier.padding(innerPadding)
         ) {
             // Tab 1: Home
@@ -137,7 +184,7 @@ fun EduHubNavHost(
                 CalendarScreen()
             }
 
-            // Tab 5: Group
+            // Tab 5: Group (Students Only)
             composable(Screen.Group.route) {
                 StudyGroupScreen(
                     onNavigateToChat = { groupId ->
@@ -203,7 +250,7 @@ fun EduHubNavHost(
                 )
             }
 
-            // Chat Room Screen (clean groupId route)
+            // Chat Room Screen
             composable(
                 route = Screen.ChatRoom.route,
                 arguments = listOf(navArgument("groupId") { type = NavType.StringType })
@@ -222,11 +269,7 @@ fun EduHubNavHost(
             composable(Screen.LecturerDashboard.route) {
                 LecturerDashboardScreen(
                     onNavigateBack = {
-                        if (currentUser?.role == UserRole.LECTURER) {
-                            onSignOut()
-                        } else {
-                            navController.popBackStack()
-                        }
+                        navController.popBackStack()
                     },
                     onSignOut = onSignOut
                 )

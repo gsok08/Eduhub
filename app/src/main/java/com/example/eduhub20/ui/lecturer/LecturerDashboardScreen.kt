@@ -28,6 +28,8 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.AlertDialog
@@ -122,6 +124,13 @@ fun LecturerDashboardScreen(
 
     val uploadedNotes = remember { mutableStateListOf(*NoteQuizRepository.getNotes().toTypedArray()) }
 
+    // Edit/Delete modals state for Material Notes
+    var noteToEdit by remember { mutableStateOf<LectureNote?>(null) }
+    var noteToDelete by remember { mutableStateOf<LectureNote?>(null) }
+    var editNoteTitle by remember { mutableStateOf("") }
+    var editNoteSemester by remember { mutableStateOf("") }
+    var editNoteContent by remember { mutableStateOf("") }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -196,7 +205,7 @@ fun LecturerDashboardScreen(
             ) {
                 Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Upload Note", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) })
                 Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Announcement", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) })
-                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Materials", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Materials (${uploadedNotes.size})", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) })
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -430,7 +439,7 @@ fun LecturerDashboardScreen(
                     }
                 }
                 2 -> {
-                    // Uploaded Materials List
+                    // Uploaded Materials List with Edit & Delete actions
                     if (uploadedNotes.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("No materials published yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -441,7 +450,8 @@ fun LecturerDashboardScreen(
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
                                     shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(14.dp),
@@ -455,10 +465,25 @@ fun LecturerDashboardScreen(
                                                 Text("PDF: ${note.pdfFileName}", style = MaterialTheme.typography.labelSmall, color = EduHubPrimary)
                                             }
                                         }
-                                        Box(
-                                            modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(EduHubAccentGreen.copy(alpha = 0.15f)).padding(horizontal = 8.dp, vertical = 4.dp)
-                                        ) {
-                                            Text("Published", fontSize = 11.sp, color = EduHubAccentGreen, fontWeight = FontWeight.Bold)
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    noteToEdit = note
+                                                    editNoteTitle = note.chapterTitle
+                                                    editNoteSemester = note.semesterPeriod
+                                                    editNoteContent = note.rawContent
+                                                },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.Edit, contentDescription = "Edit", tint = EduHubAccentOrange, modifier = Modifier.size(18.dp))
+                                            }
+                                            IconButton(
+                                                onClick = { noteToDelete = note },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                            }
                                         }
                                     }
                                 }
@@ -470,7 +495,91 @@ fun LecturerDashboardScreen(
         }
     }
 
-    // Create Course Dialog
+    // ── Edit Lecture Note Dialog ─────────────────────────────────────────
+    if (noteToEdit != null) {
+        val target = noteToEdit!!
+        AlertDialog(
+            onDismissRequest = { noteToEdit = null },
+            title = { Text("Edit Lecture Note", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = editNoteTitle,
+                        onValueChange = { editNoteTitle = it },
+                        label = { Text("Chapter Title") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = editNoteSemester,
+                        onValueChange = { editNoteSemester = it },
+                        label = { Text("Semester Period") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = editNoteContent,
+                        onValueChange = { editNoteContent = it },
+                        label = { Text("Slide Content / Text") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = target.copy(
+                            chapterTitle = editNoteTitle.trim(),
+                            semesterPeriod = editNoteSemester.trim(),
+                            rawContent = editNoteContent.trim()
+                        )
+                        NoteQuizRepository.updateLectureNote(updated)
+                        val idx = uploadedNotes.indexOfFirst { it.id == target.id }
+                        if (idx != -1) uploadedNotes[idx] = updated
+                        noteToEdit = null
+                        scope.launch { snackbarHostState.showSnackbar("Note updated successfully.") }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = EduHubAccentOrange)
+                ) {
+                    Text("Save Changes")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { noteToEdit = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Delete Lecture Note Dialog ───────────────────────────────────────
+    if (noteToDelete != null) {
+        val target = noteToDelete!!
+        AlertDialog(
+            onDismissRequest = { noteToDelete = null },
+            title = { Text("Delete Lecture Note") },
+            text = { Text("Are you sure you want to delete \"${target.chapterTitle}\"?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        NoteQuizRepository.deleteLectureNote(target.id)
+                        uploadedNotes.removeAll { it.id == target.id }
+                        noteToDelete = null
+                        scope.launch { snackbarHostState.showSnackbar("Note deleted.") }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { noteToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Create Course Dialog ─────────────────────────────────────────────
     if (showCreateCourseDialog) {
         AlertDialog(
             onDismissRequest = { showCreateCourseDialog = false },
