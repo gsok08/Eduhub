@@ -42,12 +42,14 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +70,7 @@ import com.example.eduhub20.ui.theme.CardCoral
 import com.example.eduhub20.ui.theme.CardGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +82,7 @@ fun CourseDetailScreen(
 ) {
     val currentUser = AuthRepository.currentUser.collectAsState().value
     val isLecturer = currentUser?.role == UserRole.LECTURER
+    val scope = rememberCoroutineScope()
 
     val course = CourseRepository.getCourseById(courseId) ?: CourseRepository.getCourses().find { it.id == courseId || it.code == courseId }
 
@@ -90,6 +94,19 @@ fun CourseDetailScreen(
     }
     val notes = remember(courseId) {
         mutableStateListOf(*(course?.let { c -> NoteQuizRepository.getNotes().filter { it.courseCode.equals(c.code, ignoreCase = true) || c.code.isBlank() }.toTypedArray() } ?: emptyArray()))
+    }
+
+    // Fetch live announcements and notes from Supabase
+    LaunchedEffect(courseId) {
+        if (course != null) {
+            val remoteAnn = CourseRepository.fetchAnnouncementsFromSupabase(course.id)
+            announcements.clear()
+            announcements.addAll(remoteAnn)
+
+            val remoteNotes = NoteQuizRepository.fetchNotesFromSupabase()
+            notes.clear()
+            notes.addAll(remoteNotes.filter { it.courseCode.equals(course.code, ignoreCase = true) || course.code.isBlank() })
+        }
     }
 
     // Edit / Delete dialog states for Announcement
@@ -297,7 +314,9 @@ fun CourseDetailScreen(
                             title = if (editAnnTitle.isBlank()) "Announcement" else editAnnTitle.trim(),
                             content = editAnnContent.trim()
                         )
-                        CourseRepository.updateAnnouncement(updated)
+                        scope.launch {
+                            CourseRepository.updateAnnouncement(updated)
+                        }
                         val idx = announcements.indexOfFirst { it.id == target.id }
                         if (idx != -1) announcements[idx] = updated
                         announcementToEdit = null
@@ -323,7 +342,9 @@ fun CourseDetailScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        CourseRepository.deleteAnnouncement(target.id)
+                        scope.launch {
+                            CourseRepository.deleteAnnouncement(target.id)
+                        }
                         announcements.removeAll { it.id == target.id }
                         announcementToDelete = null
                     },
@@ -379,7 +400,9 @@ fun CourseDetailScreen(
                             semesterPeriod = editNoteSemester.trim(),
                             rawContent = editNoteContent.trim()
                         )
-                        NoteQuizRepository.updateLectureNote(updated)
+                        scope.launch {
+                            NoteQuizRepository.updateLectureNote(updated)
+                        }
                         val idx = notes.indexOfFirst { it.id == target.id }
                         if (idx != -1) notes[idx] = updated
                         noteToEdit = null
@@ -405,7 +428,9 @@ fun CourseDetailScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        NoteQuizRepository.deleteLectureNote(target.id)
+                        scope.launch {
+                            NoteQuizRepository.deleteLectureNote(target.id)
+                        }
                         notes.removeAll { it.id == target.id }
                         noteToDelete = null
                     },

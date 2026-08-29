@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -75,8 +76,16 @@ fun NoteQuizScreen(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
+    val notesList = remember { mutableStateListOf(*NoteQuizRepository.getNotes().toTypedArray()) }
 
-    val notes = NoteQuizRepository.getNotes().filter {
+    // Fetch notes from Supabase
+    LaunchedEffect(Unit) {
+        val remote = NoteQuizRepository.fetchNotesFromSupabase()
+        notesList.clear()
+        notesList.addAll(remote)
+    }
+
+    val filteredNotes = notesList.filter {
         searchQuery.isBlank() ||
                 it.chapterTitle.contains(searchQuery, true) ||
                 it.semesterPeriod.contains(searchQuery, true) ||
@@ -102,14 +111,14 @@ fun NoteQuizScreen(
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)),
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
-            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("My Note", fontWeight = FontWeight.SemiBold) })
+            Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("My Note (${filteredNotes.size})", fontWeight = FontWeight.SemiBold) })
             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Quiz", fontWeight = FontWeight.SemiBold) })
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         if (selectedTab == 0) {
-            if (notes.isEmpty()) {
+            if (filteredNotes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
@@ -129,7 +138,7 @@ fun NoteQuizScreen(
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(notes) { note ->
+                    items(filteredNotes) { note ->
                         NoteCardItem(note = note, onClick = { onNavigateToNoteDetail(note.id) })
                         Spacer(modifier = Modifier.height(12.dp))
                     }
@@ -281,7 +290,7 @@ fun NoteDetailAiScreen(
                 "=== ${rawNote.courseCode}: ${rawNote.chapterTitle} ===\nSemester: ${rawNote.semesterPeriod}\n\nORIGINAL LECTURE CONTENT:\n${rawNote.rawContent}\n\nKey Concepts Covered:\n• Modular component design and MVVM separation\n• Safe reactive state streams with Coroutines StateFlow\n• Cloud synchronization and offline-first persistence",
                 "PRACTICAL IMPLEMENTATION EXAMPLES:\n\n1. Composable Lifecycle:\nRemember that Composables can execute in any order and recompose frequently.\nAvoid side effects inside composable bodies; use LaunchedEffect or rememberCoroutineScope.\n\n2. Database Optimization:\nAlways index foreign keys and apply Row-Level-Security (RLS) policies on Supabase."
             ),
-            pdfUrl = "",
+            pdfUrl = rawNote.pdfUrl ?: "",
             onDismiss = { showPdfViewer = false }
         )
         return

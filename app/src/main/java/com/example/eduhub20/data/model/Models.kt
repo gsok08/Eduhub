@@ -46,6 +46,7 @@ data class LectureNote(
     val chapterTitle: String,
     val rawContent: String,
     val pdfFileName: String? = null,
+    val pdfUrl: String? = null,
     val uploadedBy: String = "Lecturer",
     val uploadDate: String = "2026-08-20"
 )

@@ -43,6 +43,14 @@ fun HomeScreen(
 ) {
     val courses = remember { mutableStateListOf(*CourseRepository.getCourses().toTypedArray()) }
 
+    // Fetch live courses from Supabase
+    LaunchedEffect(Unit) {
+        val remoteCourses = CourseRepository.fetchCoursesFromSupabase()
+        courses.clear()
+        courses.addAll(remoteCourses)
+        NoteQuizRepository.fetchNotesFromSupabase()
+    }
+
     // Global search
     var searchQuery by remember { mutableStateOf("") }
     var searchActive by remember { mutableStateOf(false) }
@@ -306,7 +314,7 @@ fun HomeScreen(
                     }
                 }
 
-                item { Spacer(modifier = Modifier.height(80.dp)) } // Space for FAB
+                item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
     }

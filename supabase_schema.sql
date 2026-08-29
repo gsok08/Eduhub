@@ -1,12 +1,13 @@
 -- =============================================================================
--- EduHub Complete Supabase SQL Database Schema
--- Run this SQL in your Supabase Dashboard -> SQL Editor -> New query -> Run
+-- EduHub Complete Supabase SQL Database Schema & Storage Setup
+-- Run this entire script in your Supabase Dashboard -> SQL Editor -> Run (▶️)
 -- =============================================================================
 
--- 1. Profiles Table
+-- 1. Profiles Table (Tracks User Display Name and Role)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
+    role TEXT DEFAULT 'STUDENT', -- 'STUDENT' or 'LECTURER'
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -14,7 +15,56 @@ ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on profiles" ON public.profiles;
 CREATE POLICY "Public full access on profiles" ON public.profiles FOR ALL USING (true) WITH CHECK (true);
 
--- 2. Study Groups Table
+-- 2. Courses Table
+CREATE TABLE IF NOT EXISTS public.courses (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    title TEXT NOT NULL,
+    lecturer_name TEXT NOT NULL,
+    join_code TEXT NOT NULL,
+    icon_category TEXT DEFAULT 'CODE',
+    exam_days_left INT DEFAULT 30,
+    progress REAL DEFAULT 0.0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on courses" ON public.courses;
+CREATE POLICY "Public full access on courses" ON public.courses FOR ALL USING (true) WITH CHECK (true);
+
+-- 3. Announcements Table
+CREATE TABLE IF NOT EXISTS public.announcements (
+    id TEXT PRIMARY KEY,
+    course_id TEXT NOT NULL,
+    lecturer_name TEXT NOT NULL,
+    date TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on announcements" ON public.announcements;
+CREATE POLICY "Public full access on announcements" ON public.announcements FOR ALL USING (true) WITH CHECK (true);
+
+-- 4. Lecture Notes Table (with PDF Storage Support)
+CREATE TABLE IF NOT EXISTS public.lecture_notes (
+    id TEXT PRIMARY KEY,
+    course_code TEXT NOT NULL,
+    course_title TEXT NOT NULL,
+    semester_period TEXT NOT NULL,
+    chapter_title TEXT NOT NULL,
+    raw_content TEXT NOT NULL,
+    pdf_file_name TEXT,
+    pdf_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.lecture_notes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on lecture_notes" ON public.lecture_notes;
+CREATE POLICY "Public full access on lecture_notes" ON public.lecture_notes FOR ALL USING (true) WITH CHECK (true);
+
+-- 5. Study Groups Table
 CREATE TABLE IF NOT EXISTS public.study_groups (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -30,7 +80,7 @@ ALTER TABLE public.study_groups ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on study_groups" ON public.study_groups;
 CREATE POLICY "Public full access on study_groups" ON public.study_groups FOR ALL USING (true) WITH CHECK (true);
 
--- 3. Chat Messages Table
+-- 6. Chat Messages Table
 CREATE TABLE IF NOT EXISTS public.chat_messages (
     id TEXT PRIMARY KEY,
     group_id TEXT NOT NULL,
@@ -46,6 +96,17 @@ ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on chat_messages" ON public.chat_messages;
 CREATE POLICY "Public full access on chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
 
--- 4. Enable Realtime Replication for Chat Messages and Study Groups
+-- 7. Supabase Storage Bucket for Lecture PDFs
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('lecture-notes', 'lecture-notes', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Public Access to lecture-notes bucket" ON storage.objects;
+CREATE POLICY "Public Access to lecture-notes bucket" ON storage.objects FOR ALL USING (bucket_id = 'lecture-notes') WITH CHECK (bucket_id = 'lecture-notes');
+
+-- 8. Enable Realtime Replication for Live Sync
 ALTER PUBLICATION supabase_realtime ADD TABLE public.study_groups;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.courses;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.lecture_notes;
