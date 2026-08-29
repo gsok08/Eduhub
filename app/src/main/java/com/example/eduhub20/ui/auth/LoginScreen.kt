@@ -117,7 +117,7 @@ fun LoginScreen(
                         .widthIn(max = 440.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Logo Header
+                    
                     Box(
                         modifier = Modifier
                             .size(72.dp)
