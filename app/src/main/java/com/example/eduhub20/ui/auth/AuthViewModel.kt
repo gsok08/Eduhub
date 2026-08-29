@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.eduhub20.data.SupabaseConfig
 import com.example.eduhub20.data.model.EduHubUser
 import com.example.eduhub20.data.model.UserRole
 import com.example.eduhub20.data.repository.AuthRepository
@@ -90,8 +89,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 selectedRole = role,
-                email = if (role == UserRole.LECTURER) SupabaseConfig.LECTURER_EMAIL else "",
-                password = if (role == UserRole.LECTURER) SupabaseConfig.LECTURER_PASSWORD else "",
                 errorMessage = null
             )
         }
@@ -139,8 +136,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         _uiState.update { it.copy(isLoading = false, currentUser = user) }
                     },
-                    onFailure = {
-                        _uiState.update { it.copy(isLoading = false, errorMessage = "Incorrect email or password. Please try again.") }
+                    onFailure = { e ->
+                        _uiState.update { it.copy(isLoading = false, errorMessage = e.message ?: "Incorrect email or password. Please try again.") }
                     }
                 )
             } else {
@@ -159,8 +156,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             _uiState.update { it.copy(isLoading = false, currentUser = user) }
                         },
-                        onFailure = {
-                            _uiState.update { it.copy(isLoading = false, errorMessage = "Sign up failed. Please check your details and try again.") }
+                        onFailure = { e ->
+                            _uiState.update { it.copy(isLoading = false, errorMessage = e.message ?: "Sign up failed. Please check your details and try again.") }
                         }
                     )
                 } else {
@@ -178,24 +175,13 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             _uiState.update { it.copy(isLoading = false, currentUser = user) }
                         },
-                        onFailure = {
-                            _uiState.update { it.copy(isLoading = false, errorMessage = "Incorrect email or password. Please try again.") }
+                        onFailure = { e ->
+                            _uiState.update { it.copy(isLoading = false, errorMessage = e.message ?: "Incorrect email or password. Please try again.") }
                         }
                     )
                 }
             }
         }
-    }
-
-    fun quickLecturerLogin() {
-        _uiState.update {
-            it.copy(
-                selectedRole = UserRole.LECTURER,
-                email = SupabaseConfig.LECTURER_EMAIL,
-                password = SupabaseConfig.LECTURER_PASSWORD
-            )
-        }
-        submitLogin()
     }
 
     fun updateProfileName(newName: String) {

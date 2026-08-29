@@ -42,6 +42,19 @@ data class CourseDto(
 )
 
 @Serializable
+data class CourseEnrollmentDto(
+    val id: String = UUID.randomUUID().toString(),
+    val user_id: String,
+    val course_id: String
+)
+
+data class EnrolledStudent(
+    val userId: String,
+    val fullName: String,
+    val role: String = "STUDENT"
+)
+
+@Serializable
 data class AnnouncementDto(
     val id: String,
     val course_id: String,
@@ -86,7 +99,7 @@ data class ChatMessageDto(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth Repository (Full Supabase Cloud Auth & Role Profiles)
+// Auth Repository (100% Dynamic Supabase Auth & Strict Role Isolation)
 // ─────────────────────────────────────────────────────────────────────────────
 object AuthRepository {
     private val _currentUser = MutableStateFlow<EduHubUser?>(null)
@@ -95,13 +108,13 @@ object AuthRepository {
     fun restoreUser(user: EduHubUser) {
         _currentUser.value = user
         StudyGroupRepository.onUserSignedIn(user)
+        CourseRepository.onUserSignedIn(user)
     }
 
     suspend fun signInAsLecturer(email: String, password: String): Result<EduHubUser> = withContext(Dispatchers.IO) {
         val trimmedEmail = email.trim()
         val trimmedPassword = password.trim()
 
-        // 1. Try Supabase Auth login
         try {
             SupabaseClientProvider.auth.signInWith(Email) {
                 this.email = trimmedEmail
@@ -111,9 +124,8 @@ object AuthRepository {
             val userObj = SupabaseClientProvider.auth.currentUserOrNull()
             val userId = userObj?.id ?: UUID.randomUUID().toString()
 
-            // Fetch profile from Supabase profiles table
             var resolvedName: String? = null
-            var resolvedRole = UserRole.LECTURER
+            var roleInDb: String? = null
 
             try {
                 val profile = SupabaseClientProvider.postgrest.from("profiles")
@@ -121,8 +133,15 @@ object AuthRepository {
                     .decodeSingleOrNull<ProfileDto>()
                 if (profile != null) {
                     resolvedName = profile.full_name
+                    roleInDb = profile.role
                 }
             } catch (e: Exception) {}
+
+            // Enforce role separation: If registered as STUDENT in Supabase, reject lecturer login
+            if (roleInDb.equals("STUDENT", ignoreCase = true)) {
+                SupabaseClientProvider.auth.signOut()
+                return@withContext Result.failure(Exception("This account is registered as a Student. Please switch to the Student login tab."))
+            }
 
             if (resolvedName.isNullOrBlank()) {
                 val metaName = userObj?.userMetadata?.get("full_name")?.toString()?.replace("\"", "")
@@ -132,7 +151,6 @@ object AuthRepository {
                     trimmedEmail.substringBefore("@").replace(".", " ").split(" ")
                         .joinToString(" ") { it.replaceFirstChar { c -> c.titlecase() } } + " (Lecturer)"
                 }
-                // Save to profiles
                 try {
                     SupabaseClientProvider.postgrest.from("profiles").upsert(
                         ProfileDto(id = userId, full_name = resolvedName, role = "LECTURER")
@@ -140,25 +158,20 @@ object AuthRepository {
                 } catch (e: Exception) {}
             }
 
-            val user = EduHubUser(userId, trimmedEmail, resolvedName, resolvedRole)
+            val user = EduHubUser(userId, trimmedEmail, resolvedName, UserRole.LECTURER)
             _currentUser.value = user
             StudyGroupRepository.onUserSignedIn(user)
-            return@withContext Result.success(user)
+            CourseRepository.onUserSignedIn(user)
+            Result.success(user)
         } catch (e: Exception) {
-            // Fallback for preset lecturer login if offline
-            if (trimmedEmail.lowercase() == SupabaseConfig.LECTURER_EMAIL.lowercase() && trimmedPassword == SupabaseConfig.LECTURER_PASSWORD) {
-                val user = EduHubUser("lecturer_preset_01", SupabaseConfig.LECTURER_EMAIL, "Teoh Li Wen (Lecturer)", UserRole.LECTURER)
-                _currentUser.value = user
-                StudyGroupRepository.onUserSignedIn(user)
-                return@withContext Result.success(user)
-            }
-            return@withContext Result.failure(Exception(e.localizedMessage ?: "Invalid lecturer credentials."))
+            Result.failure(Exception(e.localizedMessage ?: "Invalid lecturer credentials."))
         }
     }
 
     suspend fun signInAsStudent(email: String, password: String): Result<EduHubUser> = withContext(Dispatchers.IO) {
         val trimmedEmail = email.trim()
         val trimmedPassword = password.trim()
+
         try {
             SupabaseClientProvider.auth.signInWith(Email) {
                 this.email = trimmedEmail
@@ -168,14 +181,23 @@ object AuthRepository {
             val userId = userObj?.id ?: UUID.randomUUID().toString()
 
             var resolvedName: String? = null
+            var roleInDb: String? = null
+
             try {
                 val profile = SupabaseClientProvider.postgrest.from("profiles")
                     .select { filter { eq("id", userId) } }
                     .decodeSingleOrNull<ProfileDto>()
                 if (profile != null) {
                     resolvedName = profile.full_name
+                    roleInDb = profile.role
                 }
             } catch (e: Exception) {}
+
+            // Enforce role separation: If registered as LECTURER in Supabase, reject student login
+            if (roleInDb.equals("LECTURER", ignoreCase = true)) {
+                SupabaseClientProvider.auth.signOut()
+                return@withContext Result.failure(Exception("This account is registered as a Lecturer. Please switch to the Lecturer login tab."))
+            }
 
             if (resolvedName.isNullOrBlank()) {
                 val metaName = userObj?.userMetadata?.get("full_name")?.toString()?.replace("\"", "")
@@ -195,6 +217,7 @@ object AuthRepository {
             val user = EduHubUser(userId, trimmedEmail, resolvedName, UserRole.STUDENT)
             _currentUser.value = user
             StudyGroupRepository.onUserSignedIn(user)
+            CourseRepository.onUserSignedIn(user)
             Result.success(user)
         } catch (e: Exception) {
             Result.failure(Exception(e.localizedMessage ?: "Login failed. Check your email and password."))
@@ -204,6 +227,7 @@ object AuthRepository {
     suspend fun signUpStudent(email: String, password: String): Result<EduHubUser> = withContext(Dispatchers.IO) {
         val trimmedEmail = email.trim()
         val trimmedPassword = password.trim()
+
         try {
             val defaultName = trimmedEmail.substringBefore("@").replace(".", " ").split(" ")
                 .joinToString(" ") { it.replaceFirstChar { c -> c.titlecase() } }
@@ -227,6 +251,7 @@ object AuthRepository {
 
             _currentUser.value = user
             StudyGroupRepository.onUserSignedIn(user)
+            CourseRepository.onUserSignedIn(user)
             Result.success(user)
         } catch (e: Exception) {
             Result.failure(Exception(e.localizedMessage ?: "Sign-up failed."))
@@ -269,22 +294,102 @@ object AuthRepository {
         } catch (e: Exception) {}
         _currentUser.value = null
         StudyGroupRepository.onUserSignOut()
+        CourseRepository.onUserSignOut()
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Course Repository (Supabase Cloud Sync for Courses & Announcements)
+// Course Repository (Enrollment Scoping, Student Roster & Course Hiding)
 // ─────────────────────────────────────────────────────────────────────────────
 object CourseRepository {
     private val _courses = mutableListOf<Course>()
     private val _announcements = mutableListOf<Announcement>()
+    private val _enrolledCourseIds = mutableSetOf<String>()
+    private val _hiddenCourseIds = mutableSetOf<String>()
+    private val _enrolledStudentsMap = mutableMapOf<String, MutableList<EnrolledStudent>>()
 
-    fun getCourses(): List<Course> = _courses.toList()
+    init {
+        val localCourses = EduHubLocalStorage.loadCourses()
+        if (localCourses.isNotEmpty()) {
+            _courses.addAll(localCourses)
+        }
+        val localAnnouncements = EduHubLocalStorage.loadAnnouncements()
+        if (localAnnouncements.isNotEmpty()) {
+            _announcements.addAll(localAnnouncements)
+        }
+    }
+
+    fun onUserSignedIn(user: EduHubUser) {
+        _enrolledCourseIds.clear()
+        _enrolledCourseIds.addAll(EduHubLocalStorage.loadEnrolledCourseIds(user.id))
+        _hiddenCourseIds.clear()
+        _hiddenCourseIds.addAll(EduHubLocalStorage.loadHiddenCourseIds(user.id))
+    }
+
+    fun onUserSignOut() {
+        _enrolledCourseIds.clear()
+        _hiddenCourseIds.clear()
+    }
+
+    fun getCourses(): List<Course> {
+        if (_courses.isEmpty()) {
+            val local = EduHubLocalStorage.loadCourses()
+            if (local.isNotEmpty()) _courses.addAll(local)
+        }
+        return _courses.toList()
+    }
+
+    fun getCoursesForUser(user: EduHubUser?, includeHidden: Boolean = false): List<Course> {
+        val all = getCourses()
+        if (user == null) return emptyList()
+
+        return if (user.role == UserRole.LECTURER) {
+            // Lecturer sees courses taught by them or all portal courses
+            val myTaught = all.filter { it.lecturerName.equals(user.name, ignoreCase = true) || it.lecturerName.contains("Lecturer", true) }
+            if (myTaught.isNotEmpty()) myTaught else all
+        } else {
+            // Student ONLY sees courses they have joined via code
+            if (_enrolledCourseIds.isEmpty()) {
+                _enrolledCourseIds.addAll(EduHubLocalStorage.loadEnrolledCourseIds(user.id))
+            }
+            if (_hiddenCourseIds.isEmpty()) {
+                _hiddenCourseIds.addAll(EduHubLocalStorage.loadHiddenCourseIds(user.id))
+            }
+            val enrolled = all.filter { _enrolledCourseIds.contains(it.id) || _enrolledCourseIds.contains(it.code) }
+            if (includeHidden) {
+                enrolled
+            } else {
+                enrolled.filter { !_hiddenCourseIds.contains(it.id) && !_hiddenCourseIds.contains(it.code) }
+            }
+        }
+    }
+
+    fun getHiddenCoursesForUser(user: EduHubUser?): List<Course> {
+        if (user == null) return emptyList()
+        val all = getCourses()
+        return all.filter { _hiddenCourseIds.contains(it.id) || _hiddenCourseIds.contains(it.code) }
+    }
+
+    fun hideCourse(userId: String, courseId: String) {
+        _hiddenCourseIds.add(courseId)
+        EduHubLocalStorage.saveHiddenCourseIds(userId, _hiddenCourseIds)
+    }
+
+    fun unhideCourse(userId: String, courseId: String) {
+        _hiddenCourseIds.remove(courseId)
+        EduHubLocalStorage.saveHiddenCourseIds(userId, _hiddenCourseIds)
+    }
 
     fun getCourseById(id: String): Course? =
-        _courses.find { it.id.equals(id, true) || it.code.equals(id, true) }
+        getCourses().find { it.id.equals(id, true) || it.code.equals(id, true) }
 
     suspend fun fetchCoursesFromSupabase(): List<Course> = withContext(Dispatchers.IO) {
+        val currentUser = AuthRepository.currentUser.value
+        if (currentUser != null) {
+            _enrolledCourseIds.addAll(EduHubLocalStorage.loadEnrolledCourseIds(currentUser.id))
+            _hiddenCourseIds.addAll(EduHubLocalStorage.loadHiddenCourseIds(currentUser.id))
+        }
+
         try {
             val dtoList = SupabaseClientProvider.postgrest.from("courses")
                 .select()
@@ -308,6 +413,7 @@ object CourseRepository {
                 val merged = (mapped + _courses).distinctBy { it.id }
                 _courses.clear()
                 _courses.addAll(merged)
+                EduHubLocalStorage.saveCourses(_courses)
             }
         } catch (e: Exception) {
             Log.e("EduHubSupabase", "Failed to fetch courses: ${e.message}")
@@ -315,10 +421,92 @@ object CourseRepository {
         _courses.toList()
     }
 
-    fun joinCourseWithCode(code: String): Result<Course> {
-        val c = _courses.find { it.joinCode.equals(code.trim(), ignoreCase = true) }
-        return if (c != null) Result.success(c)
-        else Result.failure(Exception("Invalid join code \"${code.trim()}\". Please check with your lecturer."))
+    suspend fun joinCourseWithCode(code: String, studentUser: EduHubUser?): Result<Course> = withContext(Dispatchers.IO) {
+        val trimmedCode = code.trim().uppercase()
+        val all = getCourses()
+        val found = all.find { it.joinCode.equals(trimmedCode, ignoreCase = true) }
+
+        if (found != null) {
+            _enrolledCourseIds.add(found.id)
+            _enrolledCourseIds.add(found.code)
+            _hiddenCourseIds.remove(found.id)
+            _hiddenCourseIds.remove(found.code)
+
+            if (studentUser != null) {
+                EduHubLocalStorage.saveEnrolledCourseIds(studentUser.id, _enrolledCourseIds)
+                EduHubLocalStorage.saveHiddenCourseIds(studentUser.id, _hiddenCourseIds)
+
+                val studentList = _enrolledStudentsMap.getOrPut(found.id) { mutableListOf() }
+                if (!studentList.any { it.userId == studentUser.id }) {
+                    studentList.add(EnrolledStudent(studentUser.id, studentUser.name, "STUDENT"))
+                }
+
+                try {
+                    SupabaseClientProvider.postgrest.from("course_enrollments").insert(
+                        CourseEnrollmentDto(user_id = studentUser.id, course_id = found.id)
+                    )
+                } catch (e: Exception) {}
+            }
+            Result.success(found)
+        } else {
+            Result.failure(Exception("Invalid join code \"$trimmedCode\". Please verify with your lecturer."))
+        }
+    }
+
+    suspend fun fetchEnrolledStudents(courseId: String): List<EnrolledStudent> = withContext(Dispatchers.IO) {
+        val students = _enrolledStudentsMap.getOrPut(courseId) { mutableListOf() }
+
+        try {
+            val enrollments = SupabaseClientProvider.postgrest.from("course_enrollments")
+                .select { filter { eq("course_id", courseId) } }
+                .decodeList<CourseEnrollmentDto>()
+
+            val studentList = mutableListOf<EnrolledStudent>()
+            for (enroll in enrollments) {
+                var name = "Student (${enroll.user_id.take(6)})"
+                try {
+                    val p = SupabaseClientProvider.postgrest.from("profiles")
+                        .select { filter { eq("id", enroll.user_id) } }
+                        .decodeSingleOrNull<ProfileDto>()
+                    if (p != null && p.full_name.isNotBlank()) {
+                        name = p.full_name
+                    }
+                } catch (e: Exception) {}
+
+                studentList.add(EnrolledStudent(enroll.user_id, name, "STUDENT"))
+            }
+
+            if (studentList.isNotEmpty()) {
+                students.clear()
+                students.addAll(studentList)
+            }
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to fetch enrolled students: ${e.message}")
+        }
+
+        students.toList()
+    }
+
+    suspend fun removeStudentFromCourse(courseId: String, studentUserId: String) = withContext(Dispatchers.IO) {
+        _enrolledStudentsMap[courseId]?.removeAll { it.userId == studentUserId }
+
+        val currentUser = AuthRepository.currentUser.value
+        if (currentUser?.id == studentUserId) {
+            _enrolledCourseIds.remove(courseId)
+            EduHubLocalStorage.saveEnrolledCourseIds(studentUserId, _enrolledCourseIds)
+        }
+
+        try {
+            SupabaseClientProvider.postgrest.from("course_enrollments").delete {
+                filter {
+                    eq("course_id", courseId)
+                    eq("user_id", studentUserId)
+                }
+            }
+            Log.d("EduHubSupabase", "Removed student $studentUserId from course $courseId in Supabase")
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to remove student from course: ${e.message}")
+        }
     }
 
     suspend fun createCourse(code: String, title: String, lecturerName: String): Course = withContext(Dispatchers.IO) {
@@ -338,6 +526,7 @@ object CourseRepository {
             progress = 0f
         )
         _courses.add(0, nc)
+        EduHubLocalStorage.saveCourses(_courses)
 
         try {
             SupabaseClientProvider.postgrest.from("courses").insert(
@@ -368,8 +557,6 @@ object CourseRepository {
                 .select { filter { eq("course_id", courseId) } }
                 .decodeList<AnnouncementDto>()
 
-            Log.d("EduHubSupabase", "Fetched ${dtoList.size} announcements for course $courseId")
-
             val mapped = dtoList.map { dto ->
                 Announcement(
                     id = dto.id,
@@ -384,6 +571,7 @@ object CourseRepository {
                 val merged = (mapped + _announcements).distinctBy { it.id }
                 _announcements.clear()
                 _announcements.addAll(merged)
+                EduHubLocalStorage.saveAnnouncements(_announcements)
             }
         } catch (e: Exception) {
             Log.e("EduHubSupabase", "Failed to fetch announcements: ${e.message}")
@@ -393,6 +581,7 @@ object CourseRepository {
 
     suspend fun addAnnouncement(a: Announcement) = withContext(Dispatchers.IO) {
         _announcements.add(0, a)
+        EduHubLocalStorage.saveAnnouncements(_announcements)
         try {
             SupabaseClientProvider.postgrest.from("announcements").insert(
                 AnnouncementDto(
@@ -413,6 +602,7 @@ object CourseRepository {
     suspend fun updateAnnouncement(a: Announcement) = withContext(Dispatchers.IO) {
         val idx = _announcements.indexOfFirst { it.id == a.id }
         if (idx != -1) _announcements[idx] = a
+        EduHubLocalStorage.saveAnnouncements(_announcements)
         try {
             SupabaseClientProvider.postgrest.from("announcements").update(
                 {
@@ -428,6 +618,7 @@ object CourseRepository {
 
     suspend fun deleteAnnouncement(announcementId: String) = withContext(Dispatchers.IO) {
         _announcements.removeAll { it.id == announcementId }
+        EduHubLocalStorage.saveAnnouncements(_announcements)
         try {
             SupabaseClientProvider.postgrest.from("announcements").delete {
                 filter { eq("id", announcementId) }
@@ -440,15 +631,29 @@ object CourseRepository {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Note / Quiz Repository (Supabase Cloud Sync & Storage Bucket for PDFs)
+// Note / Quiz Repository (Full Local + Cloud Persistence)
 // ─────────────────────────────────────────────────────────────────────────────
 object NoteQuizRepository {
     private val _notes = mutableListOf<LectureNote>()
     private val _aiCache = mutableMapOf<String, AiGeneratedNote>()
     private val _quizHistory = mutableListOf<QuizHistoryItem>()
 
-    fun getNotes(): List<LectureNote> = _notes.toList()
-    fun getNoteById(id: String): LectureNote? = _notes.find { it.id == id }
+    init {
+        val local = EduHubLocalStorage.loadNotes()
+        if (local.isNotEmpty()) {
+            _notes.addAll(local)
+        }
+    }
+
+    fun getNotes(): List<LectureNote> {
+        if (_notes.isEmpty()) {
+            val local = EduHubLocalStorage.loadNotes()
+            if (local.isNotEmpty()) _notes.addAll(local)
+        }
+        return _notes.toList()
+    }
+
+    fun getNoteById(id: String): LectureNote? = getNotes().find { it.id == id }
 
     suspend fun uploadPdfToSupabase(context: Context, uri: Uri, fileName: String): String? = withContext(Dispatchers.IO) {
         try {
@@ -467,6 +672,11 @@ object NoteQuizRepository {
     }
 
     suspend fun fetchNotesFromSupabase(): List<LectureNote> = withContext(Dispatchers.IO) {
+        val local = EduHubLocalStorage.loadNotes()
+        if (local.isNotEmpty() && _notes.isEmpty()) {
+            _notes.addAll(local)
+        }
+
         try {
             val dtoList = SupabaseClientProvider.postgrest.from("lecture_notes")
                 .select()
@@ -490,6 +700,7 @@ object NoteQuizRepository {
                 val merged = (mapped + _notes).distinctBy { it.id }
                 _notes.clear()
                 _notes.addAll(merged)
+                EduHubLocalStorage.saveNotes(_notes)
             }
         } catch (e: Exception) {
             Log.e("EduHubSupabase", "Failed to fetch lecture notes: ${e.message}")
@@ -499,6 +710,8 @@ object NoteQuizRepository {
 
     suspend fun addLectureNote(n: LectureNote) = withContext(Dispatchers.IO) {
         _notes.add(0, n)
+        EduHubLocalStorage.saveNotes(_notes)
+
         try {
             SupabaseClientProvider.postgrest.from("lecture_notes").insert(
                 LectureNoteDto(
@@ -522,6 +735,7 @@ object NoteQuizRepository {
         val idx = _notes.indexOfFirst { it.id == note.id }
         if (idx != -1) _notes[idx] = note
         _aiCache.remove(note.id)
+        EduHubLocalStorage.saveNotes(_notes)
 
         try {
             SupabaseClientProvider.postgrest.from("lecture_notes").update(
@@ -540,6 +754,7 @@ object NoteQuizRepository {
     suspend fun deleteLectureNote(noteId: String) = withContext(Dispatchers.IO) {
         _notes.removeAll { it.id == noteId }
         _aiCache.remove(noteId)
+        EduHubLocalStorage.saveNotes(_notes)
 
         try {
             SupabaseClientProvider.postgrest.from("lecture_notes").delete {

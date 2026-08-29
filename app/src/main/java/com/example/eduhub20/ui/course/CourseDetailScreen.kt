@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,6 +66,7 @@ import com.example.eduhub20.data.model.LectureNote
 import com.example.eduhub20.data.model.UserRole
 import com.example.eduhub20.data.repository.AuthRepository
 import com.example.eduhub20.data.repository.CourseRepository
+import com.example.eduhub20.data.repository.EnrolledStudent
 import com.example.eduhub20.data.repository.NoteQuizRepository
 import com.example.eduhub20.ui.theme.CardBlue
 import com.example.eduhub20.ui.theme.CardCoral
@@ -88,15 +91,18 @@ fun CourseDetailScreen(
 
     var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Dynamic state lists for announcements & notes
+    // Dynamic state lists for announcements, notes, and enrolled students
     val announcements = remember(courseId) {
         mutableStateListOf(*(course?.let { CourseRepository.getAnnouncementsForCourse(it.id).toTypedArray() } ?: emptyArray()))
     }
     val notes = remember(courseId) {
         mutableStateListOf(*(course?.let { c -> NoteQuizRepository.getNotes().filter { it.courseCode.equals(c.code, ignoreCase = true) || c.code.isBlank() }.toTypedArray() } ?: emptyArray()))
     }
+    val enrolledStudents = remember(courseId) {
+        mutableStateListOf<EnrolledStudent>()
+    }
 
-    // Fetch live announcements and notes from Supabase
+    // Fetch live announcements, notes, and enrolled students from Supabase
     LaunchedEffect(courseId) {
         if (course != null) {
             val remoteAnn = CourseRepository.fetchAnnouncementsFromSupabase(course.id)
@@ -106,8 +112,17 @@ fun CourseDetailScreen(
             val remoteNotes = NoteQuizRepository.fetchNotesFromSupabase()
             notes.clear()
             notes.addAll(remoteNotes.filter { it.courseCode.equals(course.code, ignoreCase = true) || course.code.isBlank() })
+
+            if (isLecturer) {
+                val students = CourseRepository.fetchEnrolledStudents(course.id)
+                enrolledStudents.clear()
+                enrolledStudents.addAll(students)
+            }
         }
     }
+
+    // Student removal modal state
+    var studentToRemove by remember { mutableStateOf<EnrolledStudent?>(null) }
 
     // Edit / Delete dialog states for Announcement
     var announcementToEdit by remember { mutableStateOf<Announcement?>(null) }
@@ -209,7 +224,7 @@ fun CourseDetailScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Sub-module Tabs: Announcement & Lecturer Note
+            // Sub-module Tabs: Announcement, Lecture Note, and Enrolled Students (for lecturer)
             TabRow(
                 selectedTabIndex = selectedTab,
                 modifier = Modifier
@@ -220,66 +235,153 @@ fun CourseDetailScreen(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("Announcements (${announcements.size})", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
+                    text = { Text("Announcements (${announcements.size})", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Lecture Notes (${notes.size})", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
+                    text = { Text("Lecture Notes (${notes.size})", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
                 )
+                if (isLecturer) {
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        text = { Text("Students (${enrolledStudents.size})", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Content List
-            if (selectedTab == 0) {
-                if (announcements.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No announcements for this course yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(announcements) { ann ->
-                            AnnouncementItem(
-                                announcement = ann,
-                                isLecturer = isLecturer,
-                                onEdit = {
-                                    announcementToEdit = ann
-                                    editAnnTitle = ann.title
-                                    editAnnContent = ann.content
-                                },
-                                onDelete = { announcementToDelete = ann }
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
+            when (selectedTab) {
+                0 -> {
+                    if (announcements.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No announcements for this course yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(announcements) { ann ->
+                                AnnouncementItem(
+                                    announcement = ann,
+                                    isLecturer = isLecturer,
+                                    onEdit = {
+                                        announcementToEdit = ann
+                                        editAnnTitle = ann.title
+                                        editAnnContent = ann.content
+                                    },
+                                    onDelete = { announcementToDelete = ann }
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
                         }
                     }
                 }
-            } else {
-                if (notes.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No lecture notes uploaded for this course yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                1 -> {
+                    if (notes.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No lecture notes uploaded for this course yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(notes) { note ->
+                                LecturerNoteItem(
+                                    note = note,
+                                    isLecturer = isLecturer,
+                                    onClick = { onNavigateToNoteDetail(note.id) },
+                                    onEdit = {
+                                        noteToEdit = note
+                                        editNoteTitle = note.chapterTitle
+                                        editNoteSemester = note.semesterPeriod
+                                        editNoteContent = note.rawContent
+                                    },
+                                    onDelete = { noteToDelete = note }
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+                        }
                     }
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(notes) { note ->
-                            LecturerNoteItem(
-                                note = note,
-                                isLecturer = isLecturer,
-                                onClick = { onNavigateToNoteDetail(note.id) },
-                                onEdit = {
-                                    noteToEdit = note
-                                    editNoteTitle = note.chapterTitle
-                                    editNoteSemester = note.semesterPeriod
-                                    editNoteContent = note.rawContent
-                                },
-                                onDelete = { noteToDelete = note }
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
+                }
+                2 -> {
+                    if (enrolledStudents.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.School, contentDescription = null, modifier = Modifier.size(54.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("No students enrolled yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                                Text("Share Join Code '${course.joinCode}' with your students to enroll.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            }
+                        }
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            items(enrolledStudents) { student ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier.size(38.dp).clip(CircleShape).background(EduHubPrimary.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Person, contentDescription = null, tint = EduHubPrimary, modifier = Modifier.size(22.dp))
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column {
+                                                Text(student.fullName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                                Text("ID: ${student.userId.take(8)}...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+
+                                        IconButton(
+                                            onClick = { studentToRemove = student },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.PersonRemove, contentDescription = "Remove Student", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    // ── Remove Student Confirmation Modal ────────────────────────────────
+    if (studentToRemove != null && course != null) {
+        val target = studentToRemove!!
+        AlertDialog(
+            onDismissRequest = { studentToRemove = null },
+            title = { Text("Remove Student", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to remove \"${target.fullName}\" from ${course.code}? They will no longer have access to this course.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        scope.launch {
+                            CourseRepository.removeStudentFromCourse(course.id, target.userId)
+                            enrolledStudents.removeAll { it.userId == target.userId }
+                            studentToRemove = null
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { studentToRemove = null }) { Text("Cancel") }
+            }
+        )
     }
 
     // ── Edit Announcement Modal ──────────────────────────────────────────

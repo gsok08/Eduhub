@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +32,7 @@ import com.example.eduhub20.ui.theme.CardGreen
 import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,13 +43,22 @@ fun HomeScreen(
     onNavigateToProfile: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val courses = remember { mutableStateListOf(*CourseRepository.getCourses().toTypedArray()) }
+    val scope = rememberCoroutineScope()
+    val courses = remember(currentUser?.id) {
+        mutableStateListOf(*CourseRepository.getCoursesForUser(currentUser).toTypedArray())
+    }
 
-    // Fetch live courses from Supabase
-    LaunchedEffect(Unit) {
-        val remoteCourses = CourseRepository.fetchCoursesFromSupabase()
+    var showHiddenCoursesDialog by remember { mutableStateOf(false) }
+
+    fun refreshCourses() {
         courses.clear()
-        courses.addAll(remoteCourses)
+        courses.addAll(CourseRepository.getCoursesForUser(currentUser))
+    }
+
+    // Fetch live courses from Supabase and refresh user's courses
+    LaunchedEffect(currentUser?.id) {
+        CourseRepository.fetchCoursesFromSupabase()
+        refreshCourses()
         NoteQuizRepository.fetchNotesFromSupabase()
     }
 
@@ -166,7 +177,17 @@ fun HomeScreen(
                         item { Text("Courses", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = EduHubPrimary) }
                         items(matchedCourses) { c ->
                             Spacer(modifier = Modifier.height(8.dp))
-                            CourseCardItem(course = c, onClick = { onNavigateToCourse(c.id) })
+                            CourseCardItem(
+                                course = c,
+                                isStudent = currentUser?.role == UserRole.STUDENT,
+                                onClick = { onNavigateToCourse(c.id) },
+                                onHide = {
+                                    if (currentUser != null) {
+                                        CourseRepository.hideCourse(currentUser.id, c.id)
+                                        refreshCourses()
+                                    }
+                                }
+                            )
                         }
                         item { Spacer(modifier = Modifier.height(12.dp)) }
                     }
@@ -199,7 +220,7 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(8.dp))
                             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                                 Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Article, contentDescription = null, tint = EduHubAccentOrange)
+                                    Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null, tint = EduHubAccentOrange)
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
                                         Text(p.session, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -259,11 +280,22 @@ fun HomeScreen(
                             text = if (currentUser?.role == UserRole.LECTURER) "Courses I Teach" else "My Courses",
                             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold
                         )
-                        if (currentUser?.role == UserRole.STUDENT) {
-                            TextButton(onClick = { showJoinDialog = true }) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = EduHubPrimary)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Join Course", fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (currentUser?.role == UserRole.STUDENT) {
+                                val hiddenCount = CourseRepository.getHiddenCoursesForUser(currentUser).size
+                                if (hiddenCount > 0) {
+                                    TextButton(onClick = { showHiddenCoursesDialog = true }) {
+                                        Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Hidden ($hiddenCount)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+
+                                TextButton(onClick = { showJoinDialog = true }) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = EduHubPrimary)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Join Course", fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                                }
                             }
                         }
                     }
@@ -288,7 +320,7 @@ fun HomeScreen(
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 if (currentUser?.role == UserRole.LECTURER) {
-                                    Text("No courses yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                                    Text("No courses created yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
                                     Text(
                                         "Go to your Lecturer Portal to create your first course.",
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -300,7 +332,7 @@ fun HomeScreen(
                                 } else {
                                     Text("You haven't joined any courses yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
                                     Text(
-                                        "Tap the '+' button below or 'Join Course' above to enroll with a code from your lecturer.",
+                                        "Tap the '+' button below or 'Join Course' above to enter a join code provided by your lecturer.",
                                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
                                 }
@@ -309,7 +341,17 @@ fun HomeScreen(
                     }
                 } else {
                     items(courses) { course ->
-                        CourseCardItem(course = course, onClick = { onNavigateToCourse(course.id) })
+                        CourseCardItem(
+                            course = course,
+                            isStudent = currentUser?.role == UserRole.STUDENT,
+                            onClick = { onNavigateToCourse(course.id) },
+                            onHide = {
+                                if (currentUser != null) {
+                                    CourseRepository.hideCourse(currentUser.id, course.id)
+                                    refreshCourses()
+                                }
+                            }
+                        )
                         Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
@@ -331,7 +373,7 @@ fun HomeScreen(
                     OutlinedTextField(
                         value = joinCode,
                         onValueChange = { joinCode = it.uppercase(); joinError = null },
-                        label = { Text("Join Code (e.g. MAD335)") },
+                        label = { Text("Join Code (e.g. MAD353)") },
                         singleLine = true,
                         isError = joinError != null,
                         modifier = Modifier.fillMaxWidth()
@@ -344,24 +386,81 @@ fun HomeScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    CourseRepository.joinCourseWithCode(joinCode).fold(
-                        onSuccess = { c ->
-                            if (!courses.any { it.id == c.id }) courses.add(0, c)
-                            showJoinDialog = false
-                            joinCode = ""
-                            joinError = null
-                        },
-                        onFailure = { e -> joinError = e.message }
-                    )
+                    scope.launch {
+                        CourseRepository.joinCourseWithCode(joinCode, currentUser).fold(
+                            onSuccess = { c ->
+                                refreshCourses()
+                                showJoinDialog = false
+                                joinCode = ""
+                                joinError = null
+                            },
+                            onFailure = { e -> joinError = e.message }
+                        )
+                    }
                 }) { Text("Join") }
             },
             dismissButton = { TextButton(onClick = { showJoinDialog = false; joinError = null }) { Text("Cancel") } }
         )
     }
+
+    // ── Hidden Courses Manager Dialog ──────────────────────────────
+    if (showHiddenCoursesDialog) {
+        val hiddenList = CourseRepository.getHiddenCoursesForUser(currentUser)
+        AlertDialog(
+            onDismissRequest = { showHiddenCoursesDialog = false },
+            title = { Text("Hidden Courses", fontWeight = FontWeight.Bold) },
+            text = {
+                if (hiddenList.isEmpty()) {
+                    Text("No hidden courses.", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp)) {
+                        items(hiddenList) { c ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("${c.code} ${c.title}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text("Lecturer: ${c.lecturerName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Button(
+                                    onClick = {
+                                        if (currentUser != null) {
+                                            CourseRepository.unhideCourse(currentUser.id, c.id)
+                                            refreshCourses()
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Text("Unhide", fontSize = 11.sp)
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showHiddenCoursesDialog = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-fun CourseCardItem(course: Course, onClick: () -> Unit) {
+fun CourseCardItem(
+    course: Course,
+    isStudent: Boolean = false,
+    onClick: () -> Unit,
+    onHide: () -> Unit = {}
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
     val cardColor = when (course.iconCategory) {
         "CODE" -> CardCoral
         "ENG" -> CardBlue
@@ -394,14 +493,38 @@ fun CourseCardItem(course: Course, onClick: () -> Unit) {
                     trackColor = Color.White.copy(alpha = 0.6f)
                 )
             }
-            Box(
-                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.85f)),
-                contentAlignment = Alignment.Center
-            ) {
-                when (course.iconCategory) {
-                    "CODE" -> Icon(Icons.Default.Code, contentDescription = null, tint = Color(0xFFE07A5F))
-                    "MATH" -> Icon(Icons.Default.Functions, contentDescription = null, tint = Color(0xFF059669))
-                    else -> Text("ENG", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF2563EB))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = 0.85f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when (course.iconCategory) {
+                        "CODE" -> Icon(Icons.Default.Code, contentDescription = null, tint = Color(0xFFE07A5F))
+                        "MATH" -> Icon(Icons.Default.Functions, contentDescription = null, tint = Color(0xFF059669))
+                        else -> Text("ENG", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF2563EB))
+                    }
+                }
+
+                if (isStudent) {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Course Options", tint = Color(0xFF334155))
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Hide Course") },
+                                leadingIcon = { Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onHide()
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
