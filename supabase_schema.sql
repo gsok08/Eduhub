@@ -1,5 +1,5 @@
 -- =============================================================================
--- EduHub Complete Supabase SQL Database Schema & Storage Setup
+-- EduHub Complete Supabase SQL Database Schema & PostgREST Setup
 -- Run this entire script in your Supabase Dashboard -> SQL Editor -> Run (▶️)
 -- =============================================================================
 
@@ -32,7 +32,20 @@ ALTER TABLE public.courses ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on courses" ON public.courses;
 CREATE POLICY "Public full access on courses" ON public.courses FOR ALL USING (true) WITH CHECK (true);
 
--- 3. Announcements Table
+-- 3. Course Enrollments Table (Tracks Which Students Joined Which Courses)
+CREATE TABLE IF NOT EXISTS public.course_enrollments (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id TEXT NOT NULL,
+    course_id TEXT NOT NULL,
+    enrolled_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (user_id, course_id)
+);
+
+ALTER TABLE public.course_enrollments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on course_enrollments" ON public.course_enrollments;
+CREATE POLICY "Public full access on course_enrollments" ON public.course_enrollments FOR ALL USING (true) WITH CHECK (true);
+
+-- 4. Announcements Table
 CREATE TABLE IF NOT EXISTS public.announcements (
     id TEXT PRIMARY KEY,
     course_id TEXT NOT NULL,
@@ -47,7 +60,7 @@ ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on announcements" ON public.announcements;
 CREATE POLICY "Public full access on announcements" ON public.announcements FOR ALL USING (true) WITH CHECK (true);
 
--- 4. Lecture Notes Table (with PDF Storage Support)
+-- 5. Lecture Notes Table (with PDF Storage Support)
 CREATE TABLE IF NOT EXISTS public.lecture_notes (
     id TEXT PRIMARY KEY,
     course_code TEXT NOT NULL,
@@ -64,7 +77,7 @@ ALTER TABLE public.lecture_notes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on lecture_notes" ON public.lecture_notes;
 CREATE POLICY "Public full access on lecture_notes" ON public.lecture_notes FOR ALL USING (true) WITH CHECK (true);
 
--- 5. Study Groups Table
+-- 6. Study Groups Table
 CREATE TABLE IF NOT EXISTS public.study_groups (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -80,7 +93,7 @@ ALTER TABLE public.study_groups ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on study_groups" ON public.study_groups;
 CREATE POLICY "Public full access on study_groups" ON public.study_groups FOR ALL USING (true) WITH CHECK (true);
 
--- 6. Chat Messages Table
+-- 7. Chat Messages Table
 CREATE TABLE IF NOT EXISTS public.chat_messages (
     id TEXT PRIMARY KEY,
     group_id TEXT NOT NULL,
@@ -96,7 +109,7 @@ ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on chat_messages" ON public.chat_messages;
 CREATE POLICY "Public full access on chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
 
--- 7. Supabase Storage Bucket for Lecture PDFs
+-- 8. Supabase Storage Bucket for Lecture PDFs
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('lecture-notes', 'lecture-notes', true)
 ON CONFLICT (id) DO NOTHING;
@@ -104,9 +117,18 @@ ON CONFLICT (id) DO NOTHING;
 DROP POLICY IF EXISTS "Public Access to lecture-notes bucket" ON storage.objects;
 CREATE POLICY "Public Access to lecture-notes bucket" ON storage.objects FOR ALL USING (bucket_id = 'lecture-notes') WITH CHECK (bucket_id = 'lecture-notes');
 
--- 8. Enable Realtime Replication for Live Sync
+-- 9. Grant full API permissions to public schema tables
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- 10. Enable Realtime Replication
 ALTER PUBLICATION supabase_realtime ADD TABLE public.study_groups;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.courses;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.lecture_notes;
+
+-- 11. Force PostgREST schema cache to reload immediately
+NOTIFY pgrst, 'reload schema';

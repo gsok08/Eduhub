@@ -40,7 +40,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -66,7 +65,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.eduhub20.data.model.UserRole
-import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
 
@@ -215,7 +213,7 @@ fun LoginScreen(
                                     color = EduHubAccentOrange
                                 )
                                 Text(
-                                    text = "Preset credentials for lecturer course management",
+                                    text = "Sign in with your Supabase lecturer account",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -321,18 +319,6 @@ fun LoginScreen(
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 15.sp
                                     )
-                                }
-                            }
-
-                            // Quick 1-Click Lecturer Login Helper
-                            if (uiState.selectedRole == UserRole.LECTURER) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                OutlinedButton(
-                                    onClick = { viewModel.quickLecturerLogin() },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Quick 1-Click Lecturer Login", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
