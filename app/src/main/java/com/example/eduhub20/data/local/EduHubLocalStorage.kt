@@ -2,6 +2,8 @@ package com.example.eduhub20.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
+import com.example.eduhub20.data.model.AiGeneratedNote
 import com.example.eduhub20.data.model.Announcement
 import com.example.eduhub20.data.model.ChatMessage
 import com.example.eduhub20.data.model.Course
@@ -17,6 +19,7 @@ object EduHubLocalStorage {
     private const val KEY_ANNOUNCEMENTS = "persisted_announcements"
     private const val KEY_LECTURE_NOTES = "persisted_lecture_notes"
     private const val KEY_STUDY_GROUPS = "persisted_study_groups"
+    private const val KEY_AI_NOTES_MAP = "persisted_ai_notes_map"
     private const val PREFIX_ENROLLED_COURSES = "persisted_enrolled_courses_"
     private const val PREFIX_HIDDEN_COURSES = "persisted_hidden_courses_"
     private const val PREFIX_JOINED_GROUP_IDS = "persisted_joined_group_ids_"
@@ -35,9 +38,8 @@ object EduHubLocalStorage {
     fun saveCourses(courses: List<Course>) {
         try {
             val serialized = json.encodeToString(courses)
-            prefs?.edit()?.putString(KEY_COURSES, serialized)?.apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            prefs?.edit { putString(KEY_COURSES, serialized) }
+        } catch (_: Exception) {
         }
     }
 
@@ -45,7 +47,7 @@ object EduHubLocalStorage {
         return try {
             val serialized = prefs?.getString(KEY_COURSES, null) ?: return emptyList()
             json.decodeFromString<List<Course>>(serialized)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptyList()
         }
     }
@@ -54,9 +56,8 @@ object EduHubLocalStorage {
         val safeKey = PREFIX_ENROLLED_COURSES + userId.trim()
         try {
             val serialized = json.encodeToString(courseIds.toList())
-            prefs?.edit()?.putString(safeKey, serialized)?.apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            prefs?.edit { putString(safeKey, serialized) }
+        } catch (_: Exception) {
         }
     }
 
@@ -65,7 +66,7 @@ object EduHubLocalStorage {
         return try {
             val serialized = prefs?.getString(safeKey, null) ?: return emptySet()
             json.decodeFromString<List<String>>(serialized).toSet()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptySet()
         }
     }
@@ -74,9 +75,8 @@ object EduHubLocalStorage {
         val safeKey = PREFIX_HIDDEN_COURSES + userId.trim()
         try {
             val serialized = json.encodeToString(hiddenIds.toList())
-            prefs?.edit()?.putString(safeKey, serialized)?.apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            prefs?.edit { putString(safeKey, serialized) }
+        } catch (_: Exception) {
         }
     }
 
@@ -85,7 +85,7 @@ object EduHubLocalStorage {
         return try {
             val serialized = prefs?.getString(safeKey, null) ?: return emptySet()
             json.decodeFromString<List<String>>(serialized).toSet()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptySet()
         }
     }
@@ -94,9 +94,8 @@ object EduHubLocalStorage {
     fun saveAnnouncements(announcements: List<Announcement>) {
         try {
             val serialized = json.encodeToString(announcements)
-            prefs?.edit()?.putString(KEY_ANNOUNCEMENTS, serialized)?.apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            prefs?.edit { putString(KEY_ANNOUNCEMENTS, serialized) }
+        } catch (_: Exception) {
         }
     }
 
@@ -104,7 +103,7 @@ object EduHubLocalStorage {
         return try {
             val serialized = prefs?.getString(KEY_ANNOUNCEMENTS, null) ?: return emptyList()
             json.decodeFromString<List<Announcement>>(serialized)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptyList()
         }
     }
@@ -113,9 +112,8 @@ object EduHubLocalStorage {
     fun saveNotes(notes: List<LectureNote>) {
         try {
             val serialized = json.encodeToString(notes)
-            prefs?.edit()?.putString(KEY_LECTURE_NOTES, serialized)?.apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            prefs?.edit { putString(KEY_LECTURE_NOTES, serialized) }
+        } catch (_: Exception) {
         }
     }
 
@@ -123,8 +121,40 @@ object EduHubLocalStorage {
         return try {
             val serialized = prefs?.getString(KEY_LECTURE_NOTES, null) ?: return emptyList()
             json.decodeFromString<List<LectureNote>>(serialized)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    // ── AI Generated Notes Persistence ───────────────────────────────────
+    fun saveAiNote(noteId: String, aiNote: AiGeneratedNote) {
+        try {
+            val currentMap = loadAllAiNotes().toMutableMap()
+            currentMap[noteId] = aiNote
+            saveAllAiNotes(currentMap)
+        } catch (_: Exception) {
+        }
+    }
+
+    fun loadAiNote(noteId: String): AiGeneratedNote? {
+        val currentMap = loadAllAiNotes()
+        return currentMap[noteId]
+    }
+
+    fun saveAllAiNotes(map: Map<String, AiGeneratedNote>) {
+        try {
+            val serialized = json.encodeToString(map)
+            prefs?.edit { putString(KEY_AI_NOTES_MAP, serialized) }
+        } catch (_: Exception) {
+        }
+    }
+
+    fun loadAllAiNotes(): Map<String, AiGeneratedNote> {
+        return try {
+            val serialized = prefs?.getString(KEY_AI_NOTES_MAP, null) ?: return emptyMap()
+            json.decodeFromString<Map<String, AiGeneratedNote>>(serialized)
+        } catch (_: Exception) {
+            emptyMap()
         }
     }
 
@@ -132,9 +162,8 @@ object EduHubLocalStorage {
     fun saveGroups(groups: List<StudyGroup>) {
         try {
             val serialized = json.encodeToString(groups)
-            prefs?.edit()?.putString(KEY_STUDY_GROUPS, serialized)?.apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            prefs?.edit { putString(KEY_STUDY_GROUPS, serialized) }
+        } catch (_: Exception) {
         }
     }
 
@@ -142,7 +171,7 @@ object EduHubLocalStorage {
         return try {
             val serialized = prefs?.getString(KEY_STUDY_GROUPS, null) ?: return emptyList()
             json.decodeFromString<List<StudyGroup>>(serialized)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptyList()
         }
     }
@@ -151,9 +180,8 @@ object EduHubLocalStorage {
         val safeKey = PREFIX_JOINED_GROUP_IDS + userId.trim()
         try {
             val serialized = json.encodeToString(joinedIds.toList())
-            prefs?.edit()?.putString(safeKey, serialized)?.apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            prefs?.edit { putString(safeKey, serialized) }
+        } catch (_: Exception) {
         }
     }
 
@@ -162,7 +190,7 @@ object EduHubLocalStorage {
         return try {
             val serialized = prefs?.getString(safeKey, null) ?: return emptySet()
             json.decodeFromString<List<String>>(serialized).toSet()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptySet()
         }
     }
@@ -171,9 +199,8 @@ object EduHubLocalStorage {
     fun saveChatMessages(groupId: String, messages: List<ChatMessage>) {
         try {
             val serialized = json.encodeToString(messages)
-            prefs?.edit()?.putString(PREFIX_CHAT_MESSAGES + groupId, serialized)?.apply()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            prefs?.edit { putString(PREFIX_CHAT_MESSAGES + groupId, serialized) }
+        } catch (_: Exception) {
         }
     }
 
@@ -181,7 +208,7 @@ object EduHubLocalStorage {
         return try {
             val serialized = prefs?.getString(PREFIX_CHAT_MESSAGES + groupId, null) ?: return emptyList()
             json.decodeFromString<List<ChatMessage>>(serialized)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             emptyList()
         }
     }

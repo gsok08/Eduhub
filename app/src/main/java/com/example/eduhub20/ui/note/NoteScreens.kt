@@ -1,6 +1,5 @@
 package com.example.eduhub20.ui.note
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,9 +23,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -40,9 +42,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,6 +55,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +73,7 @@ import com.example.eduhub20.ui.theme.CardBlue
 import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import kotlinx.coroutines.launch
 
 @Composable
 fun NoteQuizScreen(
@@ -272,14 +279,30 @@ fun NoteDetailAiScreen(
     modifier: Modifier = Modifier
 ) {
     val rawNote = NoteQuizRepository.getNoteById(noteId) ?: return
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
     var aiNote by remember { mutableStateOf<AiGeneratedNote?>(null) }
     var isGenerating by remember { mutableStateOf(true) }
     var showPdfViewer by remember { mutableStateOf(false) }
 
+    // Edit Study Note state
+    var showEditDialog by remember { mutableStateOf(false) }
+    var editTitle by remember { mutableStateOf("") }
+    var editSummary by remember { mutableStateOf("") }
+    var editTakeawaysText by remember { mutableStateOf("") }
+    var editTerminologyText by remember { mutableStateOf("") }
+
+    fun loadOrGenerate(force: Boolean = false) {
+        scope.launch {
+            isGenerating = true
+            aiNote = NoteQuizRepository.getOrGenerateAiNote(rawNote, forceRegenerate = force)
+            isGenerating = false
+        }
+    }
+
     LaunchedEffect(noteId) {
-        isGenerating = true
-        aiNote = NoteQuizRepository.getOrGenerateAiNote(rawNote)
-        isGenerating = false
+        loadOrGenerate(force = false)
     }
 
     if (showPdfViewer) {
@@ -297,12 +320,30 @@ fun NoteDetailAiScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("AI Study Note", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    if (aiNote != null && !isGenerating) {
+                        IconButton(onClick = {
+                            val current = aiNote!!
+                            editTitle = current.title
+                            editSummary = current.summary
+                            editTakeawaysText = current.keyTakeaways.joinToString("\n")
+                            editTerminologyText = current.keyTerminology.entries.joinToString("\n") { "${it.key}: ${it.value}" }
+                            showEditDialog = true
+                        }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit Note", tint = EduHubPrimary)
+                        }
+                        IconButton(onClick = { loadOrGenerate(force = true) }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Regenerate AI", tint = EduHubAccentOrange)
+                        }
                     }
                 }
             )
@@ -314,7 +355,8 @@ fun NoteDetailAiScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = EduHubPrimary)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("EduHub AI is generating structured notes...", fontWeight = FontWeight.Medium)
+                    Text("EduHub AI is preparing structured notes...", fontWeight = FontWeight.Medium)
+                    Text("Loading from cache or analyzing lecture materials", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
@@ -340,7 +382,7 @@ fun NoteDetailAiScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = EduHubPrimary, modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("AI Generated Summary", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                                Text("AI Study Guide (Saved)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = EduHubPrimary)
                             }
                             OutlinedButton(
                                 onClick = { showPdfViewer = true },
@@ -358,8 +400,26 @@ fun NoteDetailAiScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
+                // Summary Section
+                if (note.summary.isNotBlank()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Summary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubAccentOrange)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(note.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+
+                // Key Takeaways Section
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -380,6 +440,7 @@ fun NoteDetailAiScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Key Terminology Section
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
@@ -413,7 +474,96 @@ fun NoteDetailAiScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Generate Quiz from Notes", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+
+        // ── Edit AI Study Note Dialog ─────────────────────────────────────
+        if (showEditDialog && aiNote != null) {
+            val current = aiNote!!
+            AlertDialog(
+                onDismissRequest = { showEditDialog = false },
+                title = { Text("Edit Study Note", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        OutlinedTextField(
+                            value = editTitle,
+                            onValueChange = { editTitle = it },
+                            label = { Text("Note Title") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = editSummary,
+                            onValueChange = { editSummary = it },
+                            label = { Text("Summary") },
+                            minLines = 3,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = editTakeawaysText,
+                            onValueChange = { editTakeawaysText = it },
+                            label = { Text("Key Takeaways (one per line)") },
+                            minLines = 3,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = editTerminologyText,
+                            onValueChange = { editTerminologyText = it },
+                            label = { Text("Key Terminology (Format: Term: Definition)") },
+                            minLines = 3,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val parsedTakeaways = editTakeawaysText.split("\n")
+                                .map { it.trim().removePrefix("•").removePrefix("-").trim() }
+                                .filter { it.isNotBlank() }
+
+                            val parsedTerminology = mutableMapOf<String, String>()
+                            editTerminologyText.split("\n").forEach { line ->
+                                if (line.contains(":")) {
+                                    val parts = line.split(":", limit = 2)
+                                    val k = parts[0].trim().removePrefix("•").removePrefix("-").trim()
+                                    val v = parts[1].trim()
+                                    if (k.isNotBlank()) parsedTerminology[k] = v
+                                }
+                            }
+
+                            val updated = current.copy(
+                                title = editTitle.trim(),
+                                summary = editSummary.trim(),
+                                keyTakeaways = if (parsedTakeaways.isNotEmpty()) parsedTakeaways else current.keyTakeaways,
+                                keyTerminology = if (parsedTerminology.isNotEmpty()) parsedTerminology else current.keyTerminology
+                            )
+
+                            aiNote = updated
+                            scope.launch {
+                                NoteQuizRepository.saveOrUpdateAiNote(updated)
+                                snackbarHostState.showSnackbar("Study note saved! Available offline.")
+                            }
+                            showEditDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary)
+                    ) {
+                        Text("Save Note")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEditDialog = false }) { Text("Cancel") }
+                }
+            )
         }
     }
 }

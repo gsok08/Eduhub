@@ -16,7 +16,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
@@ -24,9 +27,11 @@ import java.util.UUID
 @Serializable
 data class ProfileDto(
     val id: String,
-    val full_name: String,
+    @SerialName("full_name")
+    val fullName: String,
     val role: String = "STUDENT",
-    val updated_at: String = "2026-08-29T00:00:00Z"
+    @SerialName("updated_at")
+    val updatedAt: String = "2026-08-29T00:00:00Z"
 )
 
 @Serializable
@@ -34,18 +39,24 @@ data class CourseDto(
     val id: String,
     val code: String,
     val title: String,
-    val lecturer_name: String,
-    val join_code: String,
-    val icon_category: String = "CODE",
-    val exam_days_left: Int = 30,
+    @SerialName("lecturer_name")
+    val lecturerName: String,
+    @SerialName("join_code")
+    val joinCode: String,
+    @SerialName("icon_category")
+    val iconCategory: String = "CODE",
+    @SerialName("exam_days_left")
+    val examDaysLeft: Int = 30,
     val progress: Float = 0.0f
 )
 
 @Serializable
 data class CourseEnrollmentDto(
     val id: String = UUID.randomUUID().toString(),
-    val user_id: String,
-    val course_id: String
+    @SerialName("user_id")
+    val userId: String,
+    @SerialName("course_id")
+    val courseId: String
 )
 
 data class EnrolledStudent(
@@ -57,8 +68,10 @@ data class EnrolledStudent(
 @Serializable
 data class AnnouncementDto(
     val id: String,
-    val course_id: String,
-    val lecturer_name: String,
+    @SerialName("course_id")
+    val courseId: String,
+    @SerialName("lecturer_name")
+    val lecturerName: String,
     val date: String,
     val title: String,
     val content: String
@@ -67,13 +80,35 @@ data class AnnouncementDto(
 @Serializable
 data class LectureNoteDto(
     val id: String,
-    val course_code: String,
-    val course_title: String,
-    val semester_period: String,
-    val chapter_title: String,
-    val raw_content: String,
-    val pdf_file_name: String? = null,
-    val pdf_url: String? = null
+    @SerialName("course_code")
+    val courseCode: String,
+    @SerialName("course_title")
+    val courseTitle: String,
+    @SerialName("semester_period")
+    val semesterPeriod: String,
+    @SerialName("chapter_title")
+    val chapterTitle: String,
+    @SerialName("raw_content")
+    val rawContent: String,
+    @SerialName("pdf_file_name")
+    val pdfFileName: String? = null,
+    @SerialName("pdf_url")
+    val pdfUrl: String? = null
+)
+
+@Serializable
+data class AiGeneratedNoteDto(
+    val id: String,
+    @SerialName("note_id")
+    val noteId: String,
+    val title: String,
+    @SerialName("key_takeaways")
+    val keyTakeaways: String,
+    @SerialName("key_terminology")
+    val keyTerminology: String,
+    val summary: String,
+    @SerialName("original_slides_url")
+    val originalSlidesUrl: String = ""
 )
 
 @Serializable
@@ -82,20 +117,26 @@ data class StudyGroupDto(
     val name: String,
     val host: String,
     val details: String,
-    val current_members: Int = 1,
-    val max_members: Int = 6,
+    @SerialName("current_members")
+    val currentMembers: Int = 1,
+    @SerialName("max_members")
+    val maxMembers: Int = 6,
     val category: String = "GROUP"
 )
 
 @Serializable
 data class ChatMessageDto(
     val id: String,
-    val group_id: String,
-    val sender_name: String,
-    val sender_role: String,
+    @SerialName("group_id")
+    val groupId: String,
+    @SerialName("sender_name")
+    val senderName: String,
+    @SerialName("sender_role")
+    val senderRole: String,
     val message: String,
     val timestamp: String,
-    val is_from_me: Boolean = false
+    @SerialName("is_from_me")
+    val isFromMe: Boolean = false
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -132,10 +173,10 @@ object AuthRepository {
                     .select { filter { eq("id", userId) } }
                     .decodeSingleOrNull<ProfileDto>()
                 if (profile != null) {
-                    resolvedName = profile.full_name
+                    resolvedName = profile.fullName
                     roleInDb = profile.role
                 }
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
 
             // Enforce role separation: If registered as STUDENT in Supabase, reject lecturer login
             if (roleInDb.equals("STUDENT", ignoreCase = true)) {
@@ -153,9 +194,9 @@ object AuthRepository {
                 }
                 try {
                     SupabaseClientProvider.postgrest.from("profiles").upsert(
-                        ProfileDto(id = userId, full_name = resolvedName, role = "LECTURER")
+                        ProfileDto(id = userId, fullName = resolvedName, role = "LECTURER")
                     )
-                } catch (e: Exception) {}
+                } catch (_: Exception) {}
             }
 
             val user = EduHubUser(userId, trimmedEmail, resolvedName, UserRole.LECTURER)
@@ -188,10 +229,10 @@ object AuthRepository {
                     .select { filter { eq("id", userId) } }
                     .decodeSingleOrNull<ProfileDto>()
                 if (profile != null) {
-                    resolvedName = profile.full_name
+                    resolvedName = profile.fullName
                     roleInDb = profile.role
                 }
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
 
             // Enforce role separation: If registered as LECTURER in Supabase, reject student login
             if (roleInDb.equals("LECTURER", ignoreCase = true)) {
@@ -209,9 +250,9 @@ object AuthRepository {
                 }
                 try {
                     SupabaseClientProvider.postgrest.from("profiles").upsert(
-                        ProfileDto(id = userId, full_name = resolvedName, role = "STUDENT")
+                        ProfileDto(id = userId, fullName = resolvedName, role = "STUDENT")
                     )
-                } catch (e: Exception) {}
+                } catch (_: Exception) {}
             }
 
             val user = EduHubUser(userId, trimmedEmail, resolvedName, UserRole.STUDENT)
@@ -245,9 +286,9 @@ object AuthRepository {
 
             try {
                 SupabaseClientProvider.postgrest.from("profiles").upsert(
-                    ProfileDto(id = userId, full_name = defaultName, role = "STUDENT")
+                    ProfileDto(id = userId, fullName = defaultName, role = "STUDENT")
                 )
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
 
             _currentUser.value = user
             StudyGroupRepository.onUserSignedIn(user)
@@ -277,13 +318,13 @@ object AuthRepository {
                     put("full_name", trimmed)
                 }
             }
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
 
         try {
             SupabaseClientProvider.postgrest.from("profiles").upsert(
-                ProfileDto(id = user.id, full_name = trimmed, role = user.role.name)
+                ProfileDto(id = user.id, fullName = trimmed, role = user.role.name)
             )
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
 
         _currentUser.value = user.copy(name = trimmed)
     }
@@ -291,7 +332,7 @@ object AuthRepository {
     fun signOut() {
         try {
             // Non-blocking sign out
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
         _currentUser.value = null
         StudyGroupRepository.onUserSignOut()
         CourseRepository.onUserSignOut()
@@ -402,10 +443,10 @@ object CourseRepository {
                     id = dto.id,
                     code = dto.code,
                     title = dto.title,
-                    lecturerName = dto.lecturer_name,
-                    joinCode = dto.join_code,
-                    iconCategory = dto.icon_category,
-                    examDaysLeft = dto.exam_days_left,
+                    lecturerName = dto.lecturerName,
+                    joinCode = dto.joinCode,
+                    iconCategory = dto.iconCategory,
+                    examDaysLeft = dto.examDaysLeft,
                     progress = dto.progress
                 )
             }
@@ -443,9 +484,9 @@ object CourseRepository {
 
                 try {
                     SupabaseClientProvider.postgrest.from("course_enrollments").insert(
-                        CourseEnrollmentDto(user_id = studentUser.id, course_id = found.id)
+                        CourseEnrollmentDto(userId = studentUser.id, courseId = found.id)
                     )
-                } catch (e: Exception) {}
+                } catch (_: Exception) {}
             }
             Result.success(found)
         } else {
@@ -463,17 +504,17 @@ object CourseRepository {
 
             val studentList = mutableListOf<EnrolledStudent>()
             for (enroll in enrollments) {
-                var name = "Student (${enroll.user_id.take(6)})"
+                var name = "Student (${enroll.userId.take(6)})"
                 try {
                     val p = SupabaseClientProvider.postgrest.from("profiles")
-                        .select { filter { eq("id", enroll.user_id) } }
+                        .select { filter { eq("id", enroll.userId) } }
                         .decodeSingleOrNull<ProfileDto>()
-                    if (p != null && p.full_name.isNotBlank()) {
-                        name = p.full_name
+                    if (p != null && p.fullName.isNotBlank()) {
+                        name = p.fullName
                     }
-                } catch (e: Exception) {}
+                } catch (_: Exception) {}
 
-                studentList.add(EnrolledStudent(enroll.user_id, name, "STUDENT"))
+                studentList.add(EnrolledStudent(enroll.userId, name, "STUDENT"))
             }
 
             if (studentList.isNotEmpty()) {
@@ -534,10 +575,10 @@ object CourseRepository {
                     id = courseId,
                     code = nc.code,
                     title = nc.title,
-                    lecturer_name = nc.lecturerName,
-                    join_code = nc.joinCode,
-                    icon_category = nc.iconCategory,
-                    exam_days_left = nc.examDaysLeft,
+                    lecturerName = nc.lecturerName,
+                    joinCode = nc.joinCode,
+                    iconCategory = nc.iconCategory,
+                    examDaysLeft = nc.examDaysLeft,
                     progress = nc.progress
                 )
             )
@@ -560,8 +601,8 @@ object CourseRepository {
             val mapped = dtoList.map { dto ->
                 Announcement(
                     id = dto.id,
-                    courseId = dto.course_id,
-                    lecturerName = dto.lecturer_name,
+                    courseId = dto.courseId,
+                    lecturerName = dto.lecturerName,
                     date = dto.date,
                     title = dto.title,
                     content = dto.content
@@ -586,8 +627,8 @@ object CourseRepository {
             SupabaseClientProvider.postgrest.from("announcements").insert(
                 AnnouncementDto(
                     id = a.id,
-                    course_id = a.courseId,
-                    lecturer_name = a.lecturerName,
+                    courseId = a.courseId,
+                    lecturerName = a.lecturerName,
                     date = a.date,
                     title = a.title,
                     content = a.content
@@ -631,7 +672,7 @@ object CourseRepository {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Note / Quiz Repository (Full Local + Cloud Persistence)
+// Note / Quiz Repository (Full Local + Cloud Persistence & AI Note Caching)
 // ─────────────────────────────────────────────────────────────────────────────
 object NoteQuizRepository {
     private val _notes = mutableListOf<LectureNote>()
@@ -642,6 +683,10 @@ object NoteQuizRepository {
         val local = EduHubLocalStorage.loadNotes()
         if (local.isNotEmpty()) {
             _notes.addAll(local)
+        }
+        val localAiNotes = EduHubLocalStorage.loadAllAiNotes()
+        if (localAiNotes.isNotEmpty()) {
+            _aiCache.putAll(localAiNotes)
         }
     }
 
@@ -687,13 +732,13 @@ object NoteQuizRepository {
             val mapped = dtoList.map { dto ->
                 LectureNote(
                     id = dto.id,
-                    courseCode = dto.course_code,
-                    courseTitle = dto.course_title,
-                    semesterPeriod = dto.semester_period,
-                    chapterTitle = dto.chapter_title,
-                    rawContent = dto.raw_content,
-                    pdfFileName = dto.pdf_file_name,
-                    pdfUrl = dto.pdf_url
+                    courseCode = dto.courseCode,
+                    courseTitle = dto.courseTitle,
+                    semesterPeriod = dto.semesterPeriod,
+                    chapterTitle = dto.chapterTitle,
+                    rawContent = dto.rawContent,
+                    pdfFileName = dto.pdfFileName,
+                    pdfUrl = dto.pdfUrl
                 )
             }
             if (mapped.isNotEmpty()) {
@@ -716,13 +761,13 @@ object NoteQuizRepository {
             SupabaseClientProvider.postgrest.from("lecture_notes").insert(
                 LectureNoteDto(
                     id = n.id,
-                    course_code = n.courseCode,
-                    course_title = n.courseTitle,
-                    semester_period = n.semesterPeriod,
-                    chapter_title = n.chapterTitle,
-                    raw_content = n.rawContent,
-                    pdf_file_name = n.pdfFileName,
-                    pdf_url = n.pdfUrl
+                    courseCode = n.courseCode,
+                    courseTitle = n.courseTitle,
+                    semesterPeriod = n.semesterPeriod,
+                    chapterTitle = n.chapterTitle,
+                    rawContent = n.rawContent,
+                    pdfFileName = n.pdfFileName,
+                    pdfUrl = n.pdfUrl
                 )
             )
             Log.d("EduHubSupabase", "Inserted lecture note '${n.chapterTitle}' into Supabase")
@@ -766,8 +811,92 @@ object NoteQuizRepository {
         }
     }
 
-    suspend fun getOrGenerateAiNote(note: LectureNote): AiGeneratedNote =
-        _aiCache.getOrPut(note.id) { EduHubAiGenerator.generateNoteSummary(note) }
+    /**
+     * Retrieves the cached AI note from disk/memory or generates a new one via Gemini API.
+     */
+    suspend fun getOrGenerateAiNote(note: LectureNote, forceRegenerate: Boolean = false): AiGeneratedNote = withContext(Dispatchers.IO) {
+        if (!forceRegenerate) {
+            val inMem = _aiCache[note.id]
+            if (inMem != null) return@withContext inMem
+
+            val localSaved = EduHubLocalStorage.loadAiNote(note.id)
+            if (localSaved != null) {
+                _aiCache[note.id] = localSaved
+                return@withContext localSaved
+            }
+
+            // Check Supabase ai_generated_notes
+            try {
+                val remoteDto = SupabaseClientProvider.postgrest.from("ai_generated_notes")
+                    .select { filter { eq("note_id", note.id) } }
+                    .decodeSingleOrNull<AiGeneratedNoteDto>()
+
+                if (remoteDto != null) {
+                    val takeaways = Json.decodeFromString<List<String>>(remoteDto.keyTakeaways)
+                    val terminology = Json.decodeFromString<Map<String, String>>(remoteDto.keyTerminology)
+                    val remoteNote = AiGeneratedNote(
+                        id = remoteDto.id,
+                        noteId = remoteDto.noteId,
+                        title = remoteDto.title,
+                        keyTakeaways = takeaways,
+                        keyTerminology = terminology,
+                        summary = remoteDto.summary,
+                        originalSlidesUrl = remoteDto.originalSlidesUrl
+                    )
+                    _aiCache[note.id] = remoteNote
+                    EduHubLocalStorage.saveAiNote(note.id, remoteNote)
+                    return@withContext remoteNote
+                }
+            } catch (_: Exception) {}
+        }
+
+        // Generate new note via Gemini API
+        val generated = EduHubAiGenerator.generateNoteSummary(note)
+        _aiCache[note.id] = generated
+        EduHubLocalStorage.saveAiNote(note.id, generated)
+
+        // Save to Supabase ai_generated_notes
+        try {
+            SupabaseClientProvider.postgrest.from("ai_generated_notes").upsert(
+                AiGeneratedNoteDto(
+                    id = generated.id,
+                    noteId = generated.noteId,
+                    title = generated.title,
+                    keyTakeaways = Json.encodeToString(generated.keyTakeaways),
+                    keyTerminology = Json.encodeToString(generated.keyTerminology),
+                    summary = generated.summary,
+                    originalSlidesUrl = generated.originalSlidesUrl
+                )
+            )
+        } catch (_: Exception) {}
+
+        generated
+    }
+
+    /**
+     * Saves user-edited study note to local storage and Supabase.
+     */
+    suspend fun saveOrUpdateAiNote(aiNote: AiGeneratedNote) = withContext(Dispatchers.IO) {
+        _aiCache[aiNote.noteId] = aiNote
+        EduHubLocalStorage.saveAiNote(aiNote.noteId, aiNote)
+
+        try {
+            SupabaseClientProvider.postgrest.from("ai_generated_notes").upsert(
+                AiGeneratedNoteDto(
+                    id = aiNote.id,
+                    noteId = aiNote.noteId,
+                    title = aiNote.title,
+                    keyTakeaways = Json.encodeToString(aiNote.keyTakeaways),
+                    keyTerminology = Json.encodeToString(aiNote.keyTerminology),
+                    summary = aiNote.summary,
+                    originalSlidesUrl = aiNote.originalSlidesUrl
+                )
+            )
+            Log.d("EduHubSupabase", "Updated AI study note '${aiNote.title}' in Supabase")
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to update AI note in Supabase: ${e.message}")
+        }
+    }
 
     fun getQuizHistory(): List<QuizHistoryItem> = _quizHistory.toList()
 
@@ -871,8 +1000,8 @@ object StudyGroupRepository {
                     name = dto.name,
                     host = dto.host,
                     details = dto.details,
-                    currentMembers = dto.current_members,
-                    maxMembers = dto.max_members,
+                    currentMembers = dto.currentMembers,
+                    maxMembers = dto.maxMembers,
                     isJoined = isJoined,
                     category = dto.category
                 )
@@ -956,8 +1085,8 @@ object StudyGroupRepository {
                     name = name,
                     host = resolvedHost,
                     details = details,
-                    current_members = 1,
-                    max_members = 6,
+                    currentMembers = 1,
+                    maxMembers = 6,
                     category = "GROUP"
                 )
             )
@@ -966,12 +1095,12 @@ object StudyGroupRepository {
             SupabaseClientProvider.postgrest.from("chat_messages").insert(
                 ChatMessageDto(
                     id = welcomeMsg.id,
-                    group_id = groupId,
-                    sender_name = welcomeMsg.senderName,
-                    sender_role = welcomeMsg.senderRole,
+                    groupId = groupId,
+                    senderName = welcomeMsg.senderName,
+                    senderRole = welcomeMsg.senderRole,
                     message = welcomeMsg.message,
                     timestamp = welcomeMsg.timestamp,
-                    is_from_me = false
+                    isFromMe = false
                 )
             )
         } catch (e: Exception) {
@@ -1012,12 +1141,12 @@ object StudyGroupRepository {
             val remoteMapped = dtoList.map { dto ->
                 ChatMessage(
                     id = dto.id,
-                    groupId = dto.group_id,
-                    senderName = dto.sender_name,
-                    senderRole = dto.sender_role,
+                    groupId = dto.groupId,
+                    senderName = dto.senderName,
+                    senderRole = dto.senderRole,
                     message = dto.message,
                     timestamp = dto.timestamp,
-                    isFromMe = dto.sender_name.equals(currentUserName, ignoreCase = true) || dto.is_from_me
+                    isFromMe = dto.senderName.equals(currentUserName, ignoreCase = true) || dto.isFromMe
                 )
             }
             if (remoteMapped.isNotEmpty()) {
@@ -1045,12 +1174,12 @@ object StudyGroupRepository {
             SupabaseClientProvider.postgrest.from("chat_messages").insert(
                 ChatMessageDto(
                     id = msgId,
-                    group_id = groupId,
-                    sender_name = senderName,
-                    sender_role = senderRole,
+                    groupId = groupId,
+                    senderName = senderName,
+                    senderRole = senderRole,
                     message = text,
                     timestamp = now,
-                    is_from_me = true
+                    isFromMe = true
                 )
             )
             Log.d("EduHubSupabase", "Sent chat message to Supabase for group $groupId")
@@ -1065,8 +1194,6 @@ object StudyGroupRepository {
 // ─────────────────────────────────────────────────────────────────────────────
 object PastYearRepository {
     private val _papers = mutableListOf<PastYearPaper>()
-
-    fun addPaper(paper: PastYearPaper) = _papers.add(0, paper)
 
     fun searchPapers(query: String, subjectFilter: String, yearFilter: String): List<PastYearPaper> =
         _papers.filter { p ->

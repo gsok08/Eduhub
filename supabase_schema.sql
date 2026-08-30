@@ -3,10 +3,11 @@
 -- Run this entire script in your Supabase Dashboard -> SQL Editor -> Run (▶️)
 -- =============================================================================
 
--- 1. Profiles Table (Tracks User Display Name and Role)
+-- 1. Profiles Table (Tracks User Display Name, Email, and Role)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
+    email TEXT,
     role TEXT DEFAULT 'STUDENT', -- 'STUDENT' or 'LECTURER'
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -77,7 +78,23 @@ ALTER TABLE public.lecture_notes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on lecture_notes" ON public.lecture_notes;
 CREATE POLICY "Public full access on lecture_notes" ON public.lecture_notes FOR ALL USING (true) WITH CHECK (true);
 
--- 6. Study Groups Table
+-- 6. AI Generated Notes Table (Persistent Caching of Generated Study Guides)
+CREATE TABLE IF NOT EXISTS public.ai_generated_notes (
+    id TEXT PRIMARY KEY,
+    note_id TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    key_takeaways TEXT NOT NULL,
+    key_terminology TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    original_slides_url TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.ai_generated_notes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on ai_generated_notes" ON public.ai_generated_notes;
+CREATE POLICY "Public full access on ai_generated_notes" ON public.ai_generated_notes FOR ALL USING (true) WITH CHECK (true);
+
+-- 7. Study Groups Table
 CREATE TABLE IF NOT EXISTS public.study_groups (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -93,7 +110,7 @@ ALTER TABLE public.study_groups ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on study_groups" ON public.study_groups;
 CREATE POLICY "Public full access on study_groups" ON public.study_groups FOR ALL USING (true) WITH CHECK (true);
 
--- 7. Chat Messages Table
+-- 8. Chat Messages Table
 CREATE TABLE IF NOT EXISTS public.chat_messages (
     id TEXT PRIMARY KEY,
     group_id TEXT NOT NULL,
@@ -109,7 +126,7 @@ ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on chat_messages" ON public.chat_messages;
 CREATE POLICY "Public full access on chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
 
--- 8. Supabase Storage Bucket for Lecture PDFs
+-- 9. Supabase Storage Bucket for Lecture PDFs
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('lecture-notes', 'lecture-notes', true)
 ON CONFLICT (id) DO NOTHING;
@@ -117,18 +134,19 @@ ON CONFLICT (id) DO NOTHING;
 DROP POLICY IF EXISTS "Public Access to lecture-notes bucket" ON storage.objects;
 CREATE POLICY "Public Access to lecture-notes bucket" ON storage.objects FOR ALL USING (bucket_id = 'lecture-notes') WITH CHECK (bucket_id = 'lecture-notes');
 
--- 9. Grant full API permissions to public schema tables
+-- 10. Grant full API permissions to public schema tables
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 
--- 10. Enable Realtime Replication
+-- 11. Enable Realtime Replication
 ALTER PUBLICATION supabase_realtime ADD TABLE public.study_groups;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.courses;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.lecture_notes;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.ai_generated_notes;
 
--- 11. Force PostgREST schema cache to reload immediately
+-- 12. Force PostgREST schema cache to reload immediately
 NOTIFY pgrst, 'reload schema';
