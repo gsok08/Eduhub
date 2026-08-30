@@ -31,6 +31,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        com.example.eduhub20.data.local.EduHubLocalStorage.init(applicationContext)
+        com.example.eduhub20.data.ai.GeminiConfig.init(applicationContext)
+
         val networkObserver = NetworkConnectivityObserver(applicationContext)
 
         setContent {

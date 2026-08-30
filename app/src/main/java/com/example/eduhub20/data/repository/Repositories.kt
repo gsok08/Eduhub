@@ -139,6 +139,25 @@ data class ChatMessageDto(
     val isFromMe: Boolean = false
 )
 
+@Serializable
+data class PastYearPaperDto(
+    val id: String,
+    @SerialName("course_code")
+    val courseCode: String,
+    @SerialName("course_title")
+    val courseTitle: String,
+    val session: String,
+    @SerialName("subject_category")
+    val subjectCategory: String = "Mobile App",
+    val year: String = "2025/2026",
+    @SerialName("duration_minutes")
+    val durationMinutes: Int = 120,
+    @SerialName("total_marks")
+    val totalMarks: Int = 100,
+    @SerialName("pdf_url")
+    val pdfUrl: String = ""
+)
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth Repository (100% Dynamic Supabase Auth & Strict Role Isolation)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1190,10 +1209,128 @@ object StudyGroupRepository {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Past Year Paper Repository
+// Past Year Paper Repository (Lecturer Upload & Full Cloud Sync)
 // ─────────────────────────────────────────────────────────────────────────────
 object PastYearRepository {
     private val _papers = mutableListOf<PastYearPaper>()
+
+    init {
+        val local = EduHubLocalStorage.loadPastYearPapers()
+        if (local.isNotEmpty()) {
+            _papers.addAll(local)
+        } else {
+            // Sample exam papers
+            _papers.addAll(
+                listOf(
+                    PastYearPaper(
+                        id = "paper-1",
+                        courseCode = "AMIT3353",
+                        courseTitle = "Mobile Application Development",
+                        session = "2025/2026 Semester 1 Final Exam",
+                        subjectCategory = "Mobile App",
+                        year = "2025/2026",
+                        durationMinutes = 120,
+                        totalMarks = 100,
+                        pdfUrl = ""
+                    ),
+                    PastYearPaper(
+                        id = "paper-2",
+                        courseCode = "BACS2063",
+                        courseTitle = "Data Structures & Algorithms",
+                        session = "2024/2025 Semester 2 Final Exam",
+                        subjectCategory = "Computer Science",
+                        year = "2024/2025",
+                        durationMinutes = 150,
+                        totalMarks = 100,
+                        pdfUrl = ""
+                    ),
+                    PastYearPaper(
+                        id = "paper-3",
+                        courseCode = "BAIT1013",
+                        courseTitle = "Calculus and Linear Algebra",
+                        session = "2023/2024 Semester 1 Midterm Exam",
+                        subjectCategory = "Calculus",
+                        year = "2023/2024",
+                        durationMinutes = 90,
+                        totalMarks = 50,
+                        pdfUrl = ""
+                    )
+                )
+            )
+            EduHubLocalStorage.savePastYearPapers(_papers)
+        }
+    }
+
+    fun getPapers(): List<PastYearPaper> = _papers.toList()
+
+    suspend fun uploadPdfToSupabase(context: Context, uri: Uri, fileName: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
+            val safeName = "past_year_${UUID.randomUUID()}_${fileName.replace(" ", "_")}"
+            SupabaseClientProvider.storage.from("lecture-notes").upload(safeName, bytes) {
+                upsert = true
+            }
+            val publicUrl = "${SupabaseConfig.SUPABASE_URL}/storage/v1/object/public/lecture-notes/$safeName"
+            Log.d("EduHubSupabase", "Successfully uploaded Past Year PDF: $publicUrl")
+            publicUrl
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to upload Past Year PDF: ${e.message}")
+            null
+        }
+    }
+
+    suspend fun addPaper(paper: PastYearPaper) = withContext(Dispatchers.IO) {
+        _papers.add(0, paper)
+        EduHubLocalStorage.savePastYearPapers(_papers)
+
+        try {
+            SupabaseClientProvider.postgrest.from("past_year_papers").insert(
+                PastYearPaperDto(
+                    id = paper.id,
+                    courseCode = paper.courseCode,
+                    courseTitle = paper.courseTitle,
+                    session = paper.session,
+                    subjectCategory = paper.subjectCategory,
+                    year = paper.year,
+                    durationMinutes = paper.durationMinutes,
+                    totalMarks = paper.totalMarks,
+                    pdfUrl = paper.pdfUrl
+                )
+            )
+            Log.d("EduHubSupabase", "Inserted past year paper '${paper.session}' into Supabase")
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to insert past year paper to Supabase: ${e.message}")
+        }
+    }
+
+    suspend fun fetchPapersFromSupabase(): List<PastYearPaper> = withContext(Dispatchers.IO) {
+        try {
+            val dtoList = SupabaseClientProvider.postgrest.from("past_year_papers")
+                .select()
+                .decodeList<PastYearPaperDto>()
+
+            val mapped = dtoList.map { dto ->
+                PastYearPaper(
+                    id = dto.id,
+                    courseCode = dto.courseCode,
+                    courseTitle = dto.courseTitle,
+                    session = dto.session,
+                    subjectCategory = dto.subjectCategory,
+                    year = dto.year,
+                    durationMinutes = dto.durationMinutes,
+                    totalMarks = dto.totalMarks,
+                    pdfUrl = dto.pdfUrl
+                )
+            }
+            if (mapped.isNotEmpty()) {
+                val merged = (mapped + _papers).distinctBy { it.id }
+                _papers.clear()
+                _papers.addAll(merged)
+                EduHubLocalStorage.savePastYearPapers(_papers)
+            }
+        } catch (_: Exception) {}
+        _papers.toList()
+    }
 
     fun searchPapers(query: String, subjectFilter: String, yearFilter: String): List<PastYearPaper> =
         _papers.filter { p ->

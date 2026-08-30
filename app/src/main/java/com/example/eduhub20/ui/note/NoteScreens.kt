@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Refresh
@@ -61,9 +62,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.eduhub20.data.ai.GeminiConfig
 import com.example.eduhub20.data.model.AiGeneratedNote
 import com.example.eduhub20.data.model.LectureNote
 import com.example.eduhub20.data.model.QuizHistoryItem
@@ -278,6 +281,7 @@ fun NoteDetailAiScreen(
     onNavigateToQuiz: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val rawNote = NoteQuizRepository.getNoteById(noteId) ?: return
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -292,6 +296,15 @@ fun NoteDetailAiScreen(
     var editSummary by remember { mutableStateOf("") }
     var editTakeawaysText by remember { mutableStateOf("") }
     var editTerminologyText by remember { mutableStateOf("") }
+
+    // API Key Dialog state
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var apiKeyInput by remember { mutableStateOf(GeminiConfig.GEMINI_API_KEY) }
+
+    LaunchedEffect(Unit) {
+        GeminiConfig.init(context)
+        apiKeyInput = GeminiConfig.GEMINI_API_KEY
+    }
 
     fun loadOrGenerate(force: Boolean = false) {
         scope.launch {
@@ -309,10 +322,7 @@ fun NoteDetailAiScreen(
         PdfAnnotationViewer(
             documentTitle = "${rawNote.courseCode} - ${rawNote.chapterTitle}",
             courseCode = rawNote.courseCode,
-            contentPages = listOf(
-                "=== ${rawNote.courseCode}: ${rawNote.chapterTitle} ===\nSemester: ${rawNote.semesterPeriod}\n\nORIGINAL LECTURE CONTENT:\n${rawNote.rawContent}\n\nKey Concepts Covered:\n• Modular component design and MVVM separation\n• Safe reactive state streams with Coroutines StateFlow\n• Cloud synchronization and offline-first persistence",
-                "PRACTICAL IMPLEMENTATION EXAMPLES:\n\n1. Composable Lifecycle:\nRemember that Composables can execute in any order and recompose frequently.\nAvoid side effects inside composable bodies; use LaunchedEffect or rememberCoroutineScope.\n\n2. Database Optimization:\nAlways index foreign keys and apply Row-Level-Security (RLS) policies on Supabase."
-            ),
+            contentPages = listOf(rawNote.rawContent),
             pdfUrl = rawNote.pdfUrl ?: "",
             onDismiss = { showPdfViewer = false }
         )
@@ -330,6 +340,13 @@ fun NoteDetailAiScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        apiKeyInput = GeminiConfig.GEMINI_API_KEY
+                        showApiKeyDialog = true
+                    }) {
+                        Icon(Icons.Default.Key, contentDescription = "Gemini API Key", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+
                     if (aiNote != null && !isGenerating) {
                         IconButton(onClick = {
                             val current = aiNote!!
@@ -355,8 +372,8 @@ fun NoteDetailAiScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(color = EduHubPrimary)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("EduHub AI is preparing structured notes...", fontWeight = FontWeight.Medium)
-                    Text("Loading from cache or analyzing lecture materials", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("EduHub AI is analyzing lecture materials...", fontWeight = FontWeight.Medium)
+                    Text("Reading PDF slides & extracting core takeaways", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
@@ -477,6 +494,39 @@ fun NoteDetailAiScreen(
 
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+
+        // ── Gemini API Key Setup Dialog ───────────────────────────────────
+        if (showApiKeyDialog) {
+            AlertDialog(
+                onDismissRequest = { showApiKeyDialog = false },
+                title = { Text("Gemini AI API Key", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        Text("Enter your Google Gemini API key to enable live multimodal PDF reading and note generation:", style = MaterialTheme.typography.bodySmall)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = apiKeyInput,
+                            onValueChange = { apiKeyInput = it },
+                            label = { Text("Gemini API Key (AIzaSy...)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        GeminiConfig.saveApiKey(context, apiKeyInput)
+                        showApiKeyDialog = false
+                        loadOrGenerate(force = true)
+                    }) {
+                        Text("Save & Regenerate")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showApiKeyDialog = false }) { Text("Cancel") }
+                }
+            )
         }
 
         // ── Edit AI Study Note Dialog ─────────────────────────────────────

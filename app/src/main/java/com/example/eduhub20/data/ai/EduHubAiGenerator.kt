@@ -1,5 +1,7 @@
 package com.example.eduhub20.data.ai
 
+import android.util.Base64
+import android.util.Log
 import com.example.eduhub20.data.model.AiGeneratedNote
 import com.example.eduhub20.data.model.LectureNote
 import com.example.eduhub20.data.model.Quiz
@@ -7,8 +9,6 @@ import com.example.eduhub20.data.model.QuizQuestion
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -28,37 +28,62 @@ object EduHubAiGenerator {
     private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
-     * Generates a structured AI study note from raw lecture notes or PDF content using Gemini AI API.
+     * Generates a structured AI study note from raw lecture notes or uploaded PDF slides using Gemini AI API
+     * or clean contextual fallback with zero garbled symbols.
      */
     suspend fun generateNoteSummary(lectureNote: LectureNote): AiGeneratedNote = withContext(Dispatchers.IO) {
         val apiKey = GeminiConfig.GEMINI_API_KEY.trim()
 
-        if (apiKey.isNotBlank()) {
+        var pdfBase64: String? = null
+        if (!lectureNote.pdfUrl.isNullOrBlank()) {
+            try {
+                val url = URL(lectureNote.pdfUrl)
+                val conn = url.openConnection() as HttpURLConnection
+                conn.connectTimeout = 10000
+                conn.readTimeout = 15000
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val bytes = conn.inputStream.use { it.readBytes() }
+                    if (bytes.isNotEmpty()) {
+                        pdfBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("EduHubAiGenerator", "Failed to download PDF for AI analysis: ${e.message}")
+            }
+        }
+
+        // 1. If Gemini API Key is configured and starts with standard format, use Gemini 2.5 Flash multimodal
+        if (apiKey.isNotBlank() && (apiKey.startsWith("AIzaSy") || apiKey.length > 25)) {
             try {
                 val prompt = """
-                    You are an expert university AI tutor. Analyze this lecture content and produce a structured study guide in valid JSON format.
+                    You are an expert university professor and AI tutor. Analyze this lecture slide deck and content thoroughly.
+                    Extract the core technical principles, architectural patterns, formulas, and concepts from the slides, and generate a comprehensive study guide in valid JSON format.
                     
                     Course Code: ${lectureNote.courseCode}
                     Course Title: ${lectureNote.courseTitle}
                     Chapter Title: ${lectureNote.chapterTitle}
                     Semester: ${lectureNote.semesterPeriod}
-                    Lecture Content:
-                    ${lectureNote.rawContent}
+                    Lecturer Notes: ${lectureNote.rawContent}
                     
                     Return ONLY a JSON object with this exact schema:
                     {
-                      "title": "Clean chapter title",
-                      "summary": "2-3 paragraph detailed summary explaining core principles and operational mechanisms.",
-                      "keyTakeaways": ["Point 1", "Point 2", "Point 3", "Point 4"],
+                      "title": "Clear Chapter Title based on slide content",
+                      "summary": "Detailed 2-3 paragraph summary explaining the exact operational mechanisms, architectures, algorithms, and practical examples taught in this PDF.",
+                      "keyTakeaways": [
+                        "Specific takeaway point from slide 1/content",
+                        "Specific takeaway point from slide 2/content",
+                        "Specific takeaway point from slide 3/content",
+                        "Specific takeaway point from slide 4/content"
+                      ],
                       "keyTerminology": {
-                        "Term1": "Clear concise definition",
-                        "Term2": "Clear concise definition",
-                        "Term3": "Clear concise definition"
+                        "Term1": "Clear concise definition from the slides",
+                        "Term2": "Clear concise definition from the slides",
+                        "Term3": "Clear concise definition from the slides"
                       }
                     }
                 """.trimIndent()
 
-                val responseJson = callGeminiApi(prompt, apiKey)
+                val responseJson = callGeminiApi(prompt, apiKey, pdfBase64)
                 if (responseJson != null) {
                     val root = jsonParser.parseToJsonElement(responseJson).jsonObject
                     val candidates = root["candidates"]?.jsonArray
@@ -71,40 +96,45 @@ object EduHubAiGenerator {
                         val cleanedText = cleanJsonString(textOutput)
                         val aiData = jsonParser.parseToJsonElement(cleanedText).jsonObject
 
-                        val title = aiData["title"]?.jsonPrimitive?.content ?: lectureNote.chapterTitle
-                        val summary = aiData["summary"]?.jsonPrimitive?.content ?: "Summary generated by EduHub AI for ${lectureNote.chapterTitle}."
-                        val takeawaysList = aiData["keyTakeaways"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
-                        val terminologyMap = aiData["keyTerminology"]?.jsonObject?.mapValues { it.value.jsonPrimitive.content } ?: emptyMap()
+                        val title = sanitizeText(aiData["title"]?.jsonPrimitive?.content ?: lectureNote.chapterTitle)
+                        val summary = sanitizeText(aiData["summary"]?.jsonPrimitive?.content ?: "")
+                        val rawTakeaways = aiData["keyTakeaways"]?.jsonArray?.map { sanitizeText(it.jsonPrimitive.content) }?.filter { it.isNotBlank() } ?: emptyList()
+                        val rawTerminology = aiData["keyTerminology"]?.jsonObject?.mapNotNull { (k, v) ->
+                            val cleanK = sanitizeText(k)
+                            val cleanV = sanitizeText(v.jsonPrimitive.content)
+                            if (cleanK.isNotBlank() && cleanV.isNotBlank()) cleanK to cleanV else null
+                        }?.toMap() ?: emptyMap()
 
-                        if (takeawaysList.isNotEmpty()) {
+                        if (rawTakeaways.isNotEmpty()) {
                             return@withContext AiGeneratedNote(
                                 id = UUID.randomUUID().toString(),
                                 noteId = lectureNote.id,
                                 title = title,
-                                keyTakeaways = takeawaysList,
-                                keyTerminology = terminologyMap,
-                                summary = summary,
+                                keyTakeaways = rawTakeaways,
+                                keyTerminology = rawTerminology,
+                                summary = if (summary.isNotBlank()) summary else "Comprehensive study summary for ${lectureNote.chapterTitle}.",
                                 originalSlidesUrl = lectureNote.pdfFileName ?: ""
                             )
                         }
                     }
                 }
             } catch (e: Exception) {
-                // Fallback to intelligent local parser if network or API error occurs
+                Log.e("EduHubAiGenerator", "Gemini API call failed: ${e.message}")
             }
         }
 
-        // Intelligent Local Generator (Contextual fallback)
-        generateLocalNoteSummary(lectureNote)
+        // 2. Clean, professional academic generator with 0 garbled characters
+        generateCleanAcademicSummary(lectureNote)
     }
 
     /**
-     * Automatically creates an interactive multi-question quiz based on generated study notes using Gemini AI API.
+     * Automatically creates an interactive multi-question quiz based on generated study notes using Gemini AI API
+     * or intelligent contextual fallback.
      */
     suspend fun generateQuizFromNote(note: AiGeneratedNote, courseCode: String): Quiz = withContext(Dispatchers.IO) {
         val apiKey = GeminiConfig.GEMINI_API_KEY.trim()
 
-        if (apiKey.isNotBlank()) {
+        if (apiKey.isNotBlank() && (apiKey.startsWith("AIzaSy") || apiKey.length > 25)) {
             try {
                 val prompt = """
                     You are an expert university professor creating an exam revision quiz.
@@ -132,7 +162,7 @@ object EduHubAiGenerator {
                     }
                 """.trimIndent()
 
-                val responseJson = callGeminiApi(prompt, apiKey)
+                val responseJson = callGeminiApi(prompt, apiKey, null)
                 if (responseJson != null) {
                     val root = jsonParser.parseToJsonElement(responseJson).jsonObject
                     val candidates = root["candidates"]?.jsonArray
@@ -145,7 +175,7 @@ object EduHubAiGenerator {
                         val cleanedText = cleanJsonString(textOutput)
                         val quizData = jsonParser.parseToJsonElement(cleanedText).jsonObject
 
-                        val quizTitle = quizData["title"]?.jsonPrimitive?.content ?: "${note.title} Quiz"
+                        val quizTitle = sanitizeText(quizData["title"]?.jsonPrimitive?.content ?: "${note.title} Quiz")
                         val questionsArray = quizData["questions"]?.jsonArray
 
                         val parsedQuestions = questionsArray?.mapIndexed { index, qElem ->
@@ -153,11 +183,11 @@ object EduHubAiGenerator {
                             QuizQuestion(
                                 questionNumber = index + 1,
                                 totalQuestions = questionsArray.size,
-                                questionText = qObj["questionText"]?.jsonPrimitive?.content ?: "Question ${index + 1}",
-                                tableOrDiagram = qObj["tableOrDiagram"]?.jsonPrimitive?.content,
-                                options = qObj["options"]?.jsonArray?.map { it.jsonPrimitive.content } ?: listOf("A", "B", "C", "D"),
+                                questionText = sanitizeText(qObj["questionText"]?.jsonPrimitive?.content ?: "Question ${index + 1}"),
+                                tableOrDiagram = qObj["tableOrDiagram"]?.jsonPrimitive?.content?.let { sanitizeText(it) },
+                                options = qObj["options"]?.jsonArray?.map { sanitizeText(it.jsonPrimitive.content) } ?: listOf("A", "B", "C", "D"),
                                 correctOptionIndex = qObj["correctOptionIndex"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
-                                reviewExplanation = qObj["reviewExplanation"]?.jsonPrimitive?.content ?: "Review chapter notes for complete explanation."
+                                reviewExplanation = sanitizeText(qObj["reviewExplanation"]?.jsonPrimitive?.content ?: "Review chapter notes for complete explanation.")
                             )
                         }
 
@@ -175,7 +205,7 @@ object EduHubAiGenerator {
                     }
                 }
             } catch (e: Exception) {
-                // Fallback to local quiz generator
+                Log.e("EduHubAiGenerator", "Gemini Quiz generation failed: ${e.message}")
             }
         }
 
@@ -183,21 +213,31 @@ object EduHubAiGenerator {
         generateLocalQuiz(note, courseCode)
     }
 
-    private fun callGeminiApi(promptText: String, apiKey: String): String? {
+    private fun callGeminiApi(promptText: String, apiKey: String, pdfBase64: String? = null): String? {
         val endpoint = "${GeminiConfig.GEMINI_ENDPOINT}?key=$apiKey"
         val url = URL(endpoint)
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
         conn.doOutput = true
-        conn.connectTimeout = 15000
-        conn.readTimeout = 20000
+        conn.connectTimeout = 25000
+        conn.readTimeout = 35000
 
         val requestBody = buildJsonObject {
             putJsonArray("contents") {
                 add(
                     buildJsonObject {
                         putJsonArray("parts") {
+                            if (!pdfBase64.isNullOrBlank()) {
+                                add(
+                                    buildJsonObject {
+                                        putJsonObject("inlineData") {
+                                            put("mimeType", "application/pdf")
+                                            put("data", pdfBase64)
+                                        }
+                                    }
+                                )
+                            }
                             add(buildJsonObject { put("text", promptText) })
                         }
                     }
@@ -219,6 +259,8 @@ object EduHubAiGenerator {
                 reader.readText()
             }
         } else {
+            val err = conn.errorStream?.use { it.bufferedReader().readText() }
+            Log.e("EduHubAiGenerator", "Gemini API Error ($responseCode): $err")
             null
         }
     }
@@ -236,41 +278,73 @@ object EduHubAiGenerator {
         return text.trim()
     }
 
-    private fun generateLocalNoteSummary(lectureNote: LectureNote): AiGeneratedNote {
+    /**
+     * Filters out binary bytecode, unmapped glyphs, and non-printable characters.
+     */
+    private fun sanitizeText(input: String): String {
+        val clean = input.filter { c ->
+            c.code in 32..126 || c == '\n' || c == '\t' || c.isLetterOrDigit() || c in ".,;:!?'\"()[]/-+–—%&"
+        }
+        val isMostlyReadable = clean.length > 2 && clean.count { it.isLetterOrDigit() || it.isWhitespace() }.toFloat() / clean.length >= 0.7f
+        return if (isMostlyReadable) clean.trim() else ""
+    }
+
+    /**
+     * Generates a completely clean, high-quality, professional academic summary without any garbled symbols.
+     */
+    private fun generateCleanAcademicSummary(lectureNote: LectureNote): AiGeneratedNote {
         val takeaways = mutableListOf<String>()
         val terminology = mutableMapOf<String, String>()
 
-        val raw = lectureNote.rawContent.trim()
-        val sentences = raw.split(".").map { it.trim() }.filter { it.length > 10 }
+        val rawClean = sanitizeText(lectureNote.rawContent)
+        val sentences = rawClean.split(Regex("[.\n]")).map { it.trim() }.filter { it.length > 10 }
 
         if (sentences.isNotEmpty()) {
-            sentences.take(4).forEach { s ->
-                takeaways.add("$s.")
+            sentences.take(5).forEach { s ->
+                val cleanSentence = s.replace(Regex("""^[0-9•\-\s]+"""), "").trim()
+                if (cleanSentence.length > 6) {
+                    takeaways.add(cleanSentence.replaceFirstChar { it.uppercase() } + ".")
+                }
             }
-        } else {
-            takeaways.add("Core concepts and foundational principles of ${lectureNote.chapterTitle}.")
-            takeaways.add("Practical applications and implementation paradigms.")
-            takeaways.add("Key exam preparation formulas, algorithms, and revision takeaways.")
-            takeaways.add("Systematic breakdown of architecture and best practices.")
         }
 
-        val words = lectureNote.chapterTitle.split(" ").filter { it.length > 3 }
-        if (words.isNotEmpty()) {
-            terminology[words.first()] = "Key foundational principle and core concept in ${lectureNote.courseTitle}"
-            if (words.size > 1) {
-                terminology[words[1]] = "Operational paradigm applied to solve core subject problems"
-            }
+        // Add core curriculum takeaways if needed
+        if (takeaways.size < 4) {
+            val title = lectureNote.chapterTitle.ifBlank { "Core Concepts" }
+            takeaways.add("Foundational principles, design patterns, and architectural workflows in $title.")
+            takeaways.add("Systematic decomposition of practical algorithms and implementation best practices.")
+            takeaways.add("Core exam preparation focus points and technical revision guidelines for ${lectureNote.courseCode}.")
+            takeaways.add("Error mitigation strategies, performance optimization, and reliable state management.")
         }
-        terminology["Framework"] = "Standardized structure providing generic functionality for application development"
-        terminology["Architecture"] = "Fundamental structural choices and organization of software components"
+
+        // Build clean terminology dictionary
+        val words = (lectureNote.chapterTitle + " " + lectureNote.courseTitle)
+            .split(Regex("""[\s,:;()/\-]+"""))
+            .map { it.trim().replaceFirstChar { c -> c.uppercase() } }
+            .filter { it.length > 3 && it.all { c -> c.isLetter() } }
+            .distinct()
+
+        words.take(4).forEach { word ->
+            terminology[word] = "Fundamental concept and operational mechanism covered in ${lectureNote.courseCode} curriculum."
+        }
+
+        if (!terminology.containsKey("Architecture")) {
+            terminology["Architecture"] = "Overall structural design and relationship between software and database layers."
+        }
+        if (!terminology.containsKey("Framework")) {
+            terminology["Framework"] = "Standardized platform providing generic functionality for rapid development."
+        }
+
+        val cleanSummary = "Comprehensive study guide for ${lectureNote.chapterTitle} (${lectureNote.courseCode}: ${lectureNote.courseTitle}). " +
+                "Covers key theoretical foundations, operational workflows, core terminology, and practical revision points from the lecture slides."
 
         return AiGeneratedNote(
             id = UUID.randomUUID().toString(),
             noteId = lectureNote.id,
-            title = lectureNote.chapterTitle,
-            keyTakeaways = takeaways,
+            title = lectureNote.chapterTitle.ifBlank { "Chapter Note" },
+            keyTakeaways = takeaways.distinct(),
             keyTerminology = terminology,
-            summary = "Summary generated by EduHub AI for ${lectureNote.chapterTitle} (${lectureNote.courseCode}). Covers key operational paradigms, terminology, and revision points from lecture slides.",
+            summary = cleanSummary,
             originalSlidesUrl = lectureNote.pdfFileName ?: ""
         )
     }
@@ -282,7 +356,7 @@ object EduHubAiGenerator {
             QuizQuestion(
                 questionNumber = 1,
                 totalQuestions = 4,
-                questionText = "What is the primary objective and focus of ${note.title}?",
+                questionText = "What is the primary learning objective of ${note.title}?",
                 tableOrDiagram = null,
                 options = listOf(
                     "A) Mastering foundational concepts and practical implementation",
@@ -316,7 +390,7 @@ object EduHubAiGenerator {
             QuizQuestion(
                 questionNumber = 3,
                 totalQuestions = 4,
-                questionText = "In cloud data synchronization, what is the key advantage of an offline-first architecture?",
+                questionText = "In mobile application architecture, what is the key advantage of an offline-first design?",
                 tableOrDiagram = null,
                 options = listOf(
                     "A) The app continues working seamlessly without internet and syncs when reconnected",
