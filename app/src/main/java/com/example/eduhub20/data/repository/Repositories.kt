@@ -1312,7 +1312,7 @@ object PastYearRepository {
         EduHubLocalStorage.savePastYearPapers(_papers)
 
         try {
-            SupabaseClientProvider.postgrest.from("past_year_papers").insert(
+            SupabaseClientProvider.postgrest.from("past_year_papers").upsert(
                 PastYearPaperDto(
                     id = paper.id,
                     courseCode = paper.courseCode,
@@ -1325,9 +1325,9 @@ object PastYearRepository {
                     pdfUrl = paper.pdfUrl
                 )
             )
-            Log.d("EduHubSupabase", "Inserted past year paper '${paper.session}' into Supabase")
+            Log.d("EduHubSupabase", "Upserted past year paper '${paper.session}' into Supabase")
         } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to insert past year paper to Supabase: ${e.message}")
+            Log.e("EduHubSupabase", "Failed to upsert past year paper to Supabase: ${e.message}")
         }
     }
 
