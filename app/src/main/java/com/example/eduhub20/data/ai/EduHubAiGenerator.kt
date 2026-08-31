@@ -279,13 +279,38 @@ object EduHubAiGenerator {
     }
 
     /**
+     * Checks if a generated or cached note contains only clean, readable English text.
+     */
+    fun isCleanAiNote(aiNote: AiGeneratedNote): Boolean {
+        if (aiNote.keyTakeaways.isEmpty()) return false
+        for (takeaway in aiNote.keyTakeaways) {
+            if (takeaway.length < 5) return false
+            val lettersAndSpaces = takeaway.count { it.isLetter() || it.isWhitespace() }
+            val ratio = lettersAndSpaces.toFloat() / takeaway.length
+            val hasStrangeChars = takeaway.any { it.code > 127 || (it.code < 32 && it != '\n' && it != '\t') }
+            if (ratio < 0.82f || hasStrangeChars) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun isCleanEnglishSentence(sentence: String): Boolean {
+        if (sentence.length < 12) return false
+        val lettersAndSpaces = sentence.count { it.isLetter() || it.isWhitespace() }
+        val ratio = lettersAndSpaces.toFloat() / sentence.length
+        val hasStrangeChars = sentence.any { it.code > 127 || (it.code < 32 && it != '\n' && it != '\t') }
+        return ratio >= 0.85f && !hasStrangeChars
+    }
+
+    /**
      * Filters out binary bytecode, unmapped glyphs, and non-printable characters.
      */
     private fun sanitizeText(input: String): String {
         val clean = input.filter { c ->
-            c.code in 32..126 || c == '\n' || c == '\t' || c.isLetterOrDigit() || c in ".,;:!?'\"()[]/-+–—%&"
+            c.code in 32..126 && c !in "§¨©ª«¬®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖ×ØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõö÷øùúûüýþÿ"
         }
-        val isMostlyReadable = clean.length > 2 && clean.count { it.isLetterOrDigit() || it.isWhitespace() }.toFloat() / clean.length >= 0.7f
+        val isMostlyReadable = clean.length > 2 && clean.count { it.isLetterOrDigit() || it.isWhitespace() }.toFloat() / clean.length >= 0.85f
         return if (isMostlyReadable) clean.trim() else ""
     }
 
@@ -297,7 +322,7 @@ object EduHubAiGenerator {
         val terminology = mutableMapOf<String, String>()
 
         val rawClean = sanitizeText(lectureNote.rawContent)
-        val sentences = rawClean.split(Regex("[.\n]")).map { it.trim() }.filter { it.length > 10 }
+        val sentences = rawClean.split(Regex("[.\n]")).map { it.trim() }.filter { isCleanEnglishSentence(it) }
 
         if (sentences.isNotEmpty()) {
             sentences.take(5).forEach { s ->
@@ -309,19 +334,19 @@ object EduHubAiGenerator {
         }
 
         // Add core curriculum takeaways if needed
+        val title = lectureNote.chapterTitle.ifBlank { "Core Concepts" }
         if (takeaways.size < 4) {
-            val title = lectureNote.chapterTitle.ifBlank { "Core Concepts" }
-            takeaways.add("Foundational principles, design patterns, and architectural workflows in $title.")
-            takeaways.add("Systematic decomposition of practical algorithms and implementation best practices.")
-            takeaways.add("Core exam preparation focus points and technical revision guidelines for ${lectureNote.courseCode}.")
-            takeaways.add("Error mitigation strategies, performance optimization, and reliable state management.")
+            takeaways.add("Foundational principles, design patterns, and operational workflows in $title.")
+            takeaways.add("Systematic decomposition of practical algorithms and implementation best practices for ${lectureNote.courseCode}.")
+            takeaways.add("Core exam revision focus points, structured design patterns, and optimization strategies.")
+            takeaways.add("Comprehensive state management, error handling, and offline-first persistence architectures.")
         }
 
         // Build clean terminology dictionary
         val words = (lectureNote.chapterTitle + " " + lectureNote.courseTitle)
             .split(Regex("""[\s,:;()/\-]+"""))
             .map { it.trim().replaceFirstChar { c -> c.uppercase() } }
-            .filter { it.length > 3 && it.all { c -> c.isLetter() } }
+            .filter { it.length > 3 && it.all { c -> c.isLetter() && c.code in 65..122 } }
             .distinct()
 
         words.take(4).forEach { word ->
@@ -336,7 +361,7 @@ object EduHubAiGenerator {
         }
 
         val cleanSummary = "Comprehensive study guide for ${lectureNote.chapterTitle} (${lectureNote.courseCode}: ${lectureNote.courseTitle}). " +
-                "Covers key theoretical foundations, operational workflows, core terminology, and practical revision points from the lecture slides."
+                "Covers key theoretical foundations, operational workflows, core terminology, and practical revision points from the lecture curriculum."
 
         return AiGeneratedNote(
             id = UUID.randomUUID().toString(),

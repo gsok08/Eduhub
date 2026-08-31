@@ -504,28 +504,51 @@ fun PaperCardItem(paper: PastYearPaper, onClick: () -> Unit) {
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(paper.session, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1E293B))
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("${paper.courseCode} · ${paper.courseTitle}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF475569))
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Chip("Category: ${paper.subjectCategory}")
-                    Chip(paper.year)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = paper.session,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color(0xFF1E293B)
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = "${paper.courseCode} · ${paper.courseTitle}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF475569)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Button(
+                    onClick = onClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Text("Open", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
-            Button(
-                onClick = onClick,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.height(34.dp)
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Dedicated Full-Width Row for Category and Year so Year always fits on one single line
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Open", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Chip("Category: ${paper.subjectCategory}")
+                Chip(paper.year)
             }
         }
     }
@@ -536,9 +559,16 @@ fun Chip(label: String) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(Color.White.copy(alpha = 0.75f))
-            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .background(Color.White.copy(alpha = 0.85f))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
-        Text(label, fontSize = 11.sp, color = Color(0xFF1E293B), fontWeight = FontWeight.Medium)
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = Color(0xFF1E293B),
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }

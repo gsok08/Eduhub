@@ -121,7 +121,9 @@ data class StudyGroupDto(
     val currentMembers: Int = 1,
     @SerialName("max_members")
     val maxMembers: Int = 6,
-    val category: String = "GROUP"
+    val category: String = "GROUP",
+    @SerialName("host_user_id")
+    val hostUserId: String = ""
 )
 
 @Serializable
@@ -860,10 +862,10 @@ object NoteQuizRepository {
     suspend fun getOrGenerateAiNote(note: LectureNote, forceRegenerate: Boolean = false): AiGeneratedNote = withContext(Dispatchers.IO) {
         if (!forceRegenerate) {
             val inMem = _aiCache[note.id]
-            if (inMem != null) return@withContext inMem
+            if (inMem != null && EduHubAiGenerator.isCleanAiNote(inMem)) return@withContext inMem
 
             val localSaved = EduHubLocalStorage.loadAiNote(note.id)
-            if (localSaved != null) {
+            if (localSaved != null && EduHubAiGenerator.isCleanAiNote(localSaved)) {
                 _aiCache[note.id] = localSaved
                 return@withContext localSaved
             }
@@ -886,9 +888,11 @@ object NoteQuizRepository {
                         summary = remoteDto.summary,
                         originalSlidesUrl = remoteDto.originalSlidesUrl
                     )
-                    _aiCache[note.id] = remoteNote
-                    EduHubLocalStorage.saveAiNote(note.id, remoteNote)
-                    return@withContext remoteNote
+                    if (EduHubAiGenerator.isCleanAiNote(remoteNote)) {
+                        _aiCache[note.id] = remoteNote
+                        EduHubLocalStorage.saveAiNote(note.id, remoteNote)
+                        return@withContext remoteNote
+                    }
                 }
             } catch (_: Exception) {}
         }
@@ -1028,10 +1032,7 @@ object StudyGroupRepository {
             val currentUserEmail = currentUser?.email ?: ""
 
             val remoteMapped = dtoList.map { dto ->
-                val isHost = (currentUserName.isNotBlank() && dto.host.equals(currentUserName, ignoreCase = true)) ||
-                        (currentUserEmail.isNotBlank() && dto.host.equals(currentUserEmail, ignoreCase = true)) ||
-                        (currentUserEmail.isNotBlank() && dto.host.equals(currentUserEmail.substringBefore("@"), ignoreCase = true))
-
+                val isHost = (currentUser != null && dto.hostUserId.isNotBlank() && dto.hostUserId == currentUser.id)
                 val isJoined = isHost || _joinedGroupIds.contains(dto.id)
 
                 if (isJoined) {
@@ -1046,7 +1047,8 @@ object StudyGroupRepository {
                     currentMembers = dto.currentMembers,
                     maxMembers = dto.maxMembers,
                     isJoined = isJoined,
-                    category = dto.category
+                    category = dto.category,
+                    hostUserId = dto.hostUserId
                 )
             }
 
@@ -1095,6 +1097,7 @@ object StudyGroupRepository {
 
     suspend fun createGroup(name: String, details: String, hostUser: EduHubUser?): StudyGroup = withContext(Dispatchers.IO) {
         val groupId = UUID.randomUUID().toString()
+        val hostId = hostUser?.id ?: ""
         val resolvedHost = if (hostUser != null && hostUser.name.isNotBlank() && hostUser.name != "Me") {
             hostUser.name
         } else if (hostUser != null && hostUser.email.isNotBlank()) {
@@ -1109,7 +1112,7 @@ object StudyGroupRepository {
             EduHubLocalStorage.saveJoinedGroupIds(hostUser.id, _joinedGroupIds)
         }
 
-        val g = StudyGroup(groupId, name, resolvedHost, details, 1, 6, true, "GROUP")
+        val g = StudyGroup(groupId, name, resolvedHost, details, 1, 6, true, "GROUP", hostUserId = hostId)
         _groups.add(0, g)
         EduHubLocalStorage.saveGroups(_groups.toList())
 
@@ -1130,10 +1133,11 @@ object StudyGroupRepository {
                     details = details,
                     currentMembers = 1,
                     maxMembers = 6,
-                    category = "GROUP"
+                    category = "GROUP",
+                    hostUserId = hostId
                 )
             )
-            Log.d("EduHubSupabase", "Successfully inserted study group '$name' (Host: $resolvedHost) into Supabase")
+            Log.d("EduHubSupabase", "Successfully inserted study group '$name' (Host: $resolvedHost, HostId: $hostId) into Supabase")
 
             SupabaseClientProvider.postgrest.from("chat_messages").insert(
                 ChatMessageDto(

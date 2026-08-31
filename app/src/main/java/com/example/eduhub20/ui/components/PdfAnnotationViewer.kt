@@ -152,6 +152,7 @@ fun PdfAnnotationViewer(
     var showAddNoteDialog by remember { mutableStateOf(false) }
     var newNoteText by remember { mutableStateOf("") }
     var saveStatusText by remember { mutableStateOf("Saved") }
+    var hasUnsavedChanges by remember { mutableStateOf(false) }
 
     // Helper to persist annotations to local storage
     fun persistAnnotations(showFeedback: Boolean = false) {
@@ -177,6 +178,7 @@ fun PdfAnnotationViewer(
             PdfAnnotationData(strokes = serializedStrokes, stickyNotes = serializedNotes)
         )
         saveStatusText = "Saved"
+        hasUnsavedChanges = false
         if (showFeedback) {
             scope.launch {
                 snackbarHostState.showSnackbar("All annotations & edits saved successfully!")
@@ -348,21 +350,26 @@ fun PdfAnnotationViewer(
                         )
                     }
 
-                    if (strokes.any { it.pageIndex == currentPage }) {
+                    // Undo and Cancel (Clear) - Only enabled for unsaved edits; turns off once saved
+                    if (hasUnsavedChanges && strokes.any { it.pageIndex == currentPage }) {
                         IconButton(onClick = {
                             val lastIdx = strokes.indexOfLast { it.pageIndex == currentPage }
                             if (lastIdx != -1) {
                                 strokes.removeAt(lastIdx)
-                                persistAnnotations(showFeedback = false)
+                                if (strokes.none { it.pageIndex == currentPage }) {
+                                    hasUnsavedChanges = false
+                                    saveStatusText = "Saved"
+                                }
                             }
                         }) {
-                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo Unsaved Edit")
                         }
                         IconButton(onClick = {
                             strokes.removeAll { it.pageIndex == currentPage }
-                            persistAnnotations(showFeedback = false)
+                            hasUnsavedChanges = false
+                            saveStatusText = "Saved"
                         }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear Page Annotations")
+                            Icon(Icons.Default.Clear, contentDescription = "Cancel Unsaved Edits")
                         }
                     }
                     if (pdfUrl.isNotBlank()) {
@@ -499,7 +506,8 @@ fun PdfAnnotationViewer(
                                                             pageIndex = currentPage
                                                         )
                                                     )
-                                                    persistAnnotations(showFeedback = false)
+                                                    hasUnsavedChanges = true
+                                                    saveStatusText = "Unsaved"
                                                 }
                                                 currentStrokePoints = emptyList()
                                             },

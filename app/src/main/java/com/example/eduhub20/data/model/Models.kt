@@ -103,7 +103,8 @@ data class StudyGroup(
     val currentMembers: Int,
     val maxMembers: Int,
     val isJoined: Boolean = false,
-    val category: String = "GROUP"
+    val category: String = "GROUP",
+    val hostUserId: String = ""
 )
 
 @Serializable
