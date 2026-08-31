@@ -165,6 +165,30 @@ object AuthRepository {
     private val _currentUser = MutableStateFlow<EduHubUser?>(null)
     val currentUser: StateFlow<EduHubUser?> = _currentUser.asStateFlow()
 
+    private fun parseAuthError(e: Throwable, defaultMsg: String): String {
+        val msg = e.message ?: e.localizedMessage ?: return defaultMsg
+        val lower = msg.lowercase()
+        return when {
+            lower.contains("invalid login credentials") || lower.contains("invalid_credentials") || lower.contains("invalid grant") || lower.contains("invalid_grant") ->
+                "Incorrect email or password. Please check your details and try again."
+            lower.contains("user already registered") || lower.contains("already registered") || lower.contains("user_already_exists") || lower.contains("identity already exists") ->
+                "An account with this email already exists. Please sign in instead."
+            lower.contains("password should be at least") || lower.contains("weak_password") ->
+                "Password must be at least 6 characters long."
+            lower.contains("invalid email") || lower.contains("validation_failed") ->
+                "Please enter a valid email address."
+            lower.contains("network") || lower.contains("connect") || lower.contains("timeout") || lower.contains("unable to resolve host") || lower.contains("failed to connect") ->
+                "Unable to connect to server. Please check your internet connection."
+            lower.contains("rate limit") || lower.contains("too many requests") || lower.contains("over_request_rate_limit") ->
+                "Too many login attempts. Please wait a moment and try again."
+            lower.contains("registered as a student") ->
+                "This account is registered as a Student. Please switch to the Student login tab."
+            lower.contains("registered as a lecturer") ->
+                "This account is registered as a Lecturer. Please switch to the Lecturer login tab."
+            else -> defaultMsg
+        }
+    }
+
     fun restoreUser(user: EduHubUser) {
         _currentUser.value = user
         StudyGroupRepository.onUserSignedIn(user)
@@ -224,7 +248,7 @@ object AuthRepository {
             CourseRepository.onUserSignedIn(user)
             Result.success(user)
         } catch (e: Exception) {
-            Result.failure(Exception(e.localizedMessage ?: "Invalid lecturer credentials."))
+            Result.failure(Exception(parseAuthError(e, "Incorrect email or password. Please try again.")))
         }
     }
 
@@ -280,7 +304,7 @@ object AuthRepository {
             CourseRepository.onUserSignedIn(user)
             Result.success(user)
         } catch (e: Exception) {
-            Result.failure(Exception(e.localizedMessage ?: "Login failed. Check your email and password."))
+            Result.failure(Exception(parseAuthError(e, "Incorrect email or password. Please try again.")))
         }
     }
 
@@ -314,7 +338,7 @@ object AuthRepository {
             CourseRepository.onUserSignedIn(user)
             Result.success(user)
         } catch (e: Exception) {
-            Result.failure(Exception(e.localizedMessage ?: "Sign-up failed."))
+            Result.failure(Exception(parseAuthError(e, "Sign-up failed. Please check your email and password.")))
         }
     }
 
@@ -323,7 +347,7 @@ object AuthRepository {
             SupabaseClientProvider.auth.resetPasswordForEmail(email.trim())
             Result.success(Unit)
         } catch (e: Exception) {
-            Result.failure(Exception(e.localizedMessage ?: "Failed to send reset email."))
+            Result.failure(Exception(parseAuthError(e, "Failed to send reset email. Please check the email address.")))
         }
     }
 
