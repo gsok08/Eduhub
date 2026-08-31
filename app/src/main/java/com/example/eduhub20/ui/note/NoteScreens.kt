@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.eduhub20.data.ai.EduHubAiGenerator
 import com.example.eduhub20.data.ai.GeminiConfig
 import com.example.eduhub20.data.model.AiGeneratedNote
 import com.example.eduhub20.data.model.LectureNote
@@ -297,13 +298,17 @@ fun NoteDetailAiScreen(
     var editTakeawaysText by remember { mutableStateOf("") }
     var editTerminologyText by remember { mutableStateOf("") }
 
-    // API Key Dialog state
+    // API Key & Flask Backend Settings state
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var apiKeyInput by remember { mutableStateOf(GeminiConfig.GEMINI_API_KEY) }
+    var backendUrlInput by remember { mutableStateOf(GeminiConfig.BACKEND_URL) }
+    var testConnectionStatus by remember { mutableStateOf<String?>(null) }
+    var isTestingConnection by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         GeminiConfig.init(context)
         apiKeyInput = GeminiConfig.GEMINI_API_KEY
+        backendUrlInput = GeminiConfig.BACKEND_URL
     }
 
     fun loadOrGenerate(force: Boolean = false) {
@@ -496,19 +501,83 @@ fun NoteDetailAiScreen(
             }
         }
 
-        // ── Gemini API Key Setup Dialog ───────────────────────────────────
+        // ── Gemini AI & Python Backend Setup Dialog ───────────────────────
         if (showApiKeyDialog) {
             AlertDialog(
                 onDismissRequest = { showApiKeyDialog = false },
-                title = { Text("Gemini AI API Key", fontWeight = FontWeight.Bold) },
+                title = { Text("AI & Backend Settings", fontWeight = FontWeight.Bold) },
                 text = {
-                    Column {
-                        Text("Enter your Google Gemini API key to enable live multimodal PDF reading and note generation:", style = MaterialTheme.typography.bodySmall)
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Connect to your laptop's Python Flask backend (app.py) or use direct Gemini API:",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Flask Backend URL Field
+                        OutlinedTextField(
+                            value = backendUrlInput,
+                            onValueChange = {
+                                backendUrlInput = it
+                                testConnectionStatus = null
+                            },
+                            label = { Text("Python Flask Backend URL") },
+                            placeholder = { Text("http://192.168.1.100:5000") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Test Connection Button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Emulator: 10.0.2.2:5000\nPhone: Laptop Wi-Fi IP",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    isTestingConnection = true
+                                    testConnectionStatus = null
+                                    scope.launch {
+                                        val (success, msg) = EduHubAiGenerator.testBackendConnection(backendUrlInput)
+                                        testConnectionStatus = if (success) "✅ $msg" else "❌ $msg"
+                                        isTestingConnection = false
+                                    }
+                                },
+                                enabled = !isTestingConnection,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                if (isTestingConnection) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                Text("Test Connection", fontSize = 11.sp)
+                            }
+                        }
+
+                        if (testConnectionStatus != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = testConnectionStatus!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (testConnectionStatus!!.startsWith("✅")) EduHubAccentGreen else MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
                         Spacer(modifier = Modifier.height(12.dp))
+
+                        // Direct Gemini API Key Field
                         OutlinedTextField(
                             value = apiKeyInput,
                             onValueChange = { apiKeyInput = it },
-                            label = { Text("Gemini API Key (AIzaSy...)") },
+                            label = { Text("Gemini API Key (Optional)") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -516,11 +585,12 @@ fun NoteDetailAiScreen(
                 },
                 confirmButton = {
                     Button(onClick = {
+                        GeminiConfig.saveBackendUrl(context, backendUrlInput)
                         GeminiConfig.saveApiKey(context, apiKeyInput)
                         showApiKeyDialog = false
                         loadOrGenerate(force = true)
                     }) {
-                        Text("Save & Regenerate")
+                        Text("Save & Connect")
                     }
                 },
                 dismissButton = {

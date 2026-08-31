@@ -28,12 +28,47 @@ object EduHubAiGenerator {
     private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
-     * Generates a structured AI study note from raw lecture notes or uploaded PDF slides using Gemini AI API
-     * or clean contextual fallback with zero garbled symbols.
+     * Tests connection to the Python Flask Backend server (e.g. http://192.168.1.100:5000).
+     */
+    suspend fun testBackendConnection(serverUrl: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val cleanUrl = serverUrl.trim().removeSuffix("/")
+        try {
+            val url = URL("$cleanUrl/api/health")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            val code = conn.responseCode
+            if (code == HttpURLConnection.HTTP_OK) {
+                val resp = conn.inputStream.bufferedReader().readText()
+                val root = jsonParser.parseToJsonElement(resp).jsonObject
+                val msg = root["message"]?.jsonPrimitive?.content ?: "Connected to Python Flask Backend!"
+                Pair(true, msg)
+            } else {
+                Pair(false, "Server returned status code $code")
+            }
+        } catch (e: Exception) {
+            Pair(false, "Cannot reach server: ${e.message ?: "Connection timed out"}")
+        }
+    }
+
+    /**
+     * Generates a structured AI study note from raw lecture notes or uploaded PDF slides.
+     * Tries the Python Flask backend first, then direct Gemini API, with clean fallback.
      */
     suspend fun generateNoteSummary(lectureNote: LectureNote): AiGeneratedNote = withContext(Dispatchers.IO) {
-        val apiKey = GeminiConfig.GEMINI_API_KEY.trim()
+        // 1. Try Python Flask Backend (running on laptop)
+        val backendUrl = GeminiConfig.BACKEND_URL.trim().removeSuffix("/")
+        if (backendUrl.isNotBlank()) {
+            val backendNote = callFlaskBackendNote(backendUrl, lectureNote)
+            if (backendNote != null && isCleanAiNote(backendNote)) {
+                Log.d("EduHubAiGenerator", "Successfully generated note via Flask Backend!")
+                return@withContext backendNote
+            }
+        }
 
+        // 2. Direct Gemini API call if direct key is provided
+        val apiKey = GeminiConfig.GEMINI_API_KEY.trim()
         var pdfBase64: String? = null
         if (!lectureNote.pdfUrl.isNullOrBlank()) {
             try {
@@ -52,7 +87,6 @@ object EduHubAiGenerator {
             }
         }
 
-        // 1. If Gemini API Key is configured and starts with standard format, use Gemini 2.5 Flash multimodal
         if (apiKey.isNotBlank() && (apiKey.startsWith("AIzaSy") || apiKey.length > 25)) {
             try {
                 val prompt = """
@@ -123,22 +157,32 @@ object EduHubAiGenerator {
             }
         }
 
-        // 2. Clean, professional academic generator with 0 garbled characters
+        // 3. Clean, professional academic generator with 0 garbled characters
         generateCleanAcademicSummary(lectureNote)
     }
 
     /**
-     * Automatically creates an interactive multi-question quiz based on generated study notes using Gemini AI API
-     * or intelligent contextual fallback.
+     * Automatically creates an interactive multi-question quiz based on generated study notes.
+     * Tries Python Flask backend first, then direct Gemini API, with local fallback.
      */
     suspend fun generateQuizFromNote(note: AiGeneratedNote, courseCode: String): Quiz = withContext(Dispatchers.IO) {
-        val apiKey = GeminiConfig.GEMINI_API_KEY.trim()
+        // 1. Try Python Flask Backend
+        val backendUrl = GeminiConfig.BACKEND_URL.trim().removeSuffix("/")
+        if (backendUrl.isNotBlank()) {
+            val backendQuiz = callFlaskBackendQuiz(backendUrl, note, courseCode)
+            if (backendQuiz != null && backendQuiz.questions.isNotEmpty()) {
+                Log.d("EduHubAiGenerator", "Successfully generated quiz via Flask Backend!")
+                return@withContext backendQuiz
+            }
+        }
 
+        // 2. Direct Gemini API
+        val apiKey = GeminiConfig.GEMINI_API_KEY.trim()
         if (apiKey.isNotBlank() && (apiKey.startsWith("AIzaSy") || apiKey.length > 25)) {
             try {
                 val prompt = """
                     You are an expert university professor creating an exam revision quiz.
-                    Based on these notes, generate 5 challenging multiple-choice questions in JSON.
+                    Based on these notes, generate 4-5 challenging multiple-choice questions in JSON.
                     
                     Course Code: $courseCode
                     Title: ${note.title}
@@ -151,7 +195,7 @@ object EduHubAiGenerator {
                       "questions": [
                         {
                           "questionNumber": 1,
-                          "totalQuestions": 5,
+                          "totalQuestions": 4,
                           "questionText": "Clear question text?",
                           "tableOrDiagram": null,
                           "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
@@ -209,8 +253,124 @@ object EduHubAiGenerator {
             }
         }
 
-        // Fallback local quiz
+        // 3. Fallback local quiz
         generateLocalQuiz(note, courseCode)
+    }
+
+    private fun callFlaskBackendNote(backendUrl: String, lectureNote: LectureNote): AiGeneratedNote? {
+        return try {
+            val url = URL("$backendUrl/api/generate-note")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.connectTimeout = 12000
+            conn.readTimeout = 25000
+
+            val requestBody = buildJsonObject {
+                put("courseCode", lectureNote.courseCode)
+                put("courseTitle", lectureNote.courseTitle)
+                put("chapterTitle", lectureNote.chapterTitle)
+                put("semesterPeriod", lectureNote.semesterPeriod)
+                put("rawContent", lectureNote.rawContent)
+                put("pdfUrl", lectureNote.pdfUrl ?: "")
+                put("apiKey", GeminiConfig.GEMINI_API_KEY)
+            }.toString()
+
+            OutputStreamWriter(conn.outputStream).use { it.write(requestBody); it.flush() }
+
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                val resp = conn.inputStream.bufferedReader().readText()
+                val root = jsonParser.parseToJsonElement(resp).jsonObject
+                if (root["success"]?.jsonPrimitive?.content?.toBoolean() == true) {
+                    val noteObj = root["note"]?.jsonObject ?: return null
+                    val title = sanitizeText(noteObj["title"]?.jsonPrimitive?.content ?: lectureNote.chapterTitle)
+                    val summary = sanitizeText(noteObj["summary"]?.jsonPrimitive?.content ?: "")
+                    val takeaways = noteObj["keyTakeaways"]?.jsonArray?.map { sanitizeText(it.jsonPrimitive.content) }?.filter { it.isNotBlank() } ?: emptyList()
+                    val terminology = noteObj["keyTerminology"]?.jsonObject?.mapNotNull { (k, v) ->
+                        val cleanK = sanitizeText(k)
+                        val cleanV = sanitizeText(v.jsonPrimitive.content)
+                        if (cleanK.isNotBlank() && cleanV.isNotBlank()) cleanK to cleanV else null
+                    }?.toMap() ?: emptyMap()
+
+                    AiGeneratedNote(
+                        id = UUID.randomUUID().toString(),
+                        noteId = lectureNote.id,
+                        title = title,
+                        keyTakeaways = takeaways,
+                        keyTerminology = terminology,
+                        summary = summary,
+                        originalSlidesUrl = lectureNote.pdfFileName ?: ""
+                    )
+                } else null
+            } else null
+        } catch (e: Exception) {
+            Log.w("EduHubAiGenerator", "Flask backend /api/generate-note unreachable: ${e.message}")
+            null
+        }
+    }
+
+    private fun callFlaskBackendQuiz(backendUrl: String, note: AiGeneratedNote, courseCode: String): Quiz? {
+        return try {
+            val url = URL("$backendUrl/api/generate-quiz")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.connectTimeout = 12000
+            conn.readTimeout = 25000
+
+            val requestBody = buildJsonObject {
+                put("courseCode", courseCode)
+                put("noteId", note.noteId)
+                put("title", note.title)
+                put("summary", note.summary)
+                putJsonArray("keyTakeaways") {
+                    note.keyTakeaways.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
+                }
+                put("apiKey", GeminiConfig.GEMINI_API_KEY)
+            }.toString()
+
+            OutputStreamWriter(conn.outputStream).use { it.write(requestBody); it.flush() }
+
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                val resp = conn.inputStream.bufferedReader().readText()
+                val root = jsonParser.parseToJsonElement(resp).jsonObject
+                if (root["success"]?.jsonPrimitive?.content?.toBoolean() == true) {
+                    val quizObj = root["quiz"]?.jsonObject ?: return null
+                    val quizTitle = sanitizeText(quizObj["title"]?.jsonPrimitive?.content ?: "${note.title} Quiz")
+                    val questionsArray = quizObj["questions"]?.jsonArray
+
+                    val parsedQuestions = questionsArray?.mapIndexed { index, qElem ->
+                        val qObj = qElem.jsonObject
+                        QuizQuestion(
+                            questionNumber = index + 1,
+                            totalQuestions = questionsArray.size,
+                            questionText = sanitizeText(qObj["questionText"]?.jsonPrimitive?.content ?: "Question ${index + 1}"),
+                            tableOrDiagram = qObj["tableOrDiagram"]?.jsonPrimitive?.content?.let { sanitizeText(it) },
+                            options = qObj["options"]?.jsonArray?.map { sanitizeText(it.jsonPrimitive.content) } ?: listOf("A", "B", "C", "D"),
+                            correctOptionIndex = qObj["correctOptionIndex"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                            reviewExplanation = sanitizeText(qObj["reviewExplanation"]?.jsonPrimitive?.content ?: "Review chapter notes for complete explanation.")
+                        )
+                    }
+
+                    if (!parsedQuestions.isNullOrEmpty()) {
+                        Quiz(
+                            id = UUID.randomUUID().toString(),
+                            noteId = note.noteId,
+                            courseCode = courseCode,
+                            title = quizTitle,
+                            questions = parsedQuestions,
+                            isCompleted = false,
+                            scorePercentage = 0
+                        )
+                    } else null
+                } else null
+            } else null
+        } catch (e: Exception) {
+            Log.w("EduHubAiGenerator", "Flask backend /api/generate-quiz unreachable: ${e.message}")
+            null
+        }
     }
 
     private fun callGeminiApi(promptText: String, apiKey: String, pdfBase64: String? = null): String? {
@@ -333,7 +493,6 @@ object EduHubAiGenerator {
             }
         }
 
-        // Add core curriculum takeaways if needed
         val title = lectureNote.chapterTitle.ifBlank { "Core Concepts" }
         if (takeaways.size < 4) {
             takeaways.add("Foundational principles, design patterns, and operational workflows in $title.")
@@ -342,7 +501,6 @@ object EduHubAiGenerator {
             takeaways.add("Comprehensive state management, error handling, and offline-first persistence architectures.")
         }
 
-        // Build clean terminology dictionary
         val words = (lectureNote.chapterTitle + " " + lectureNote.courseTitle)
             .split(Regex("""[\s,:;()/\-]+"""))
             .map { it.trim().replaceFirstChar { c -> c.uppercase() } }
@@ -407,7 +565,7 @@ object EduHubAiGenerator {
                     "D) Global mutable singleton states"
                 ),
                 correctOptionIndex = 1,
-                reviewExplanation = "Modular separation of concerns (e.g. MVVM) ensures components remain independent, testable, and maintainable."
+                reviewExplanation = "Modular separation of concerns ensures components remain independent, testable, and maintainable."
             )
         )
 
@@ -415,13 +573,13 @@ object EduHubAiGenerator {
             QuizQuestion(
                 questionNumber = 3,
                 totalQuestions = 4,
-                questionText = "In mobile application architecture, what is the key advantage of an offline-first design?",
+                questionText = "In modern mobile application architecture, what is the primary benefit of an offline-first design?",
                 tableOrDiagram = null,
                 options = listOf(
                     "A) The app continues working seamlessly without internet and syncs when reconnected",
                     "B) It disables network access permanently",
-                    "C) It consumes infinite memory",
-                    "D) It prevents cloud backups"
+                    "C) It consumes infinite local cache storage",
+                    "D) It prevents cloud database backups"
                 ),
                 correctOptionIndex = 0,
                 reviewExplanation = "Offline-first architecture caches state locally so users can read and write data uninterrupted, synchronizing updates once connection is restored."

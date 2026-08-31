@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+//Testing 123
 @androidx.compose.runtime.Composable
 private fun BoxContent(
     isAuthenticated: Boolean,

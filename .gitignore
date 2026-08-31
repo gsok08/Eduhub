@@ -12,3 +12,6 @@ app/build/
 .cxx
 local.properties
 .kotlin
+.env
+*.env
+backend/.env
