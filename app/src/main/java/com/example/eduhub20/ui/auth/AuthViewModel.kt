@@ -25,6 +25,10 @@ data class AuthUiState(
     val successMessage: String? = null,
     val showForgotPasswordDialog: Boolean = false,
     val forgotPasswordEmail: String = "",
+    val forgotPasswordOtp: String = "",
+    val forgotPasswordNewPassword: String = "",
+    val isOtpSent: Boolean = false,
+    val isResettingPassword: Boolean = false,
     val currentUser: EduHubUser? = null
 )
 
@@ -99,13 +103,25 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 showForgotPasswordDialog = show,
                 forgotPasswordEmail = if (show) it.email else "",
+                forgotPasswordOtp = "",
+                forgotPasswordNewPassword = "",
+                isOtpSent = false,
+                isResettingPassword = false,
                 errorMessage = null
             )
         }
     }
 
     fun onForgotPasswordEmailChanged(email: String) {
-        _uiState.update { it.copy(forgotPasswordEmail = email) }
+        _uiState.update { it.copy(forgotPasswordEmail = email, errorMessage = null) }
+    }
+
+    fun onForgotPasswordOtpChanged(otp: String) {
+        _uiState.update { it.copy(forgotPasswordOtp = otp, errorMessage = null) }
+    }
+
+    fun onForgotPasswordNewPasswordChanged(password: String) {
+        _uiState.update { it.copy(forgotPasswordNewPassword = password, errorMessage = null) }
     }
 
     fun submitLogin() {
@@ -193,20 +209,76 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun sendPasswordReset() {
+    fun sendPasswordResetOtp() {
         val email = _uiState.value.forgotPasswordEmail.trim()
-        if (email.isBlank()) {
-            _uiState.update { it.copy(errorMessage = "Please enter email for password reset.") }
+        if (email.isBlank() || !email.contains("@")) {
+            _uiState.update { it.copy(errorMessage = "Please enter a valid email address.") }
             return
         }
         viewModelScope.launch {
-            AuthRepository.sendPasswordReset(email)
-            _uiState.update {
-                it.copy(
-                    showForgotPasswordDialog = false,
-                    successMessage = "Password reset instructions sent to $email"
-                )
-            }
+            _uiState.update { it.copy(isResettingPassword = true, errorMessage = null) }
+            val res = AuthRepository.sendPasswordReset(email)
+            res.fold(
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
+                            isResettingPassword = false,
+                            isOtpSent = true,
+                            errorMessage = null
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(
+                            isResettingPassword = false,
+                            errorMessage = e.message ?: "Failed to send reset code. Please check your email."
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun verifyOtpAndSetNewPassword() {
+        val state = _uiState.value
+        val email = state.forgotPasswordEmail.trim()
+        val otp = state.forgotPasswordOtp.trim()
+        val newPassword = state.forgotPasswordNewPassword.trim()
+
+        if (otp.length < 6) {
+            _uiState.update { it.copy(errorMessage = "Please enter the 6-digit verification code sent to your email.") }
+            return
+        }
+        if (newPassword.length < 6) {
+            _uiState.update { it.copy(errorMessage = "New password must be at least 6 characters.") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isResettingPassword = true, errorMessage = null) }
+            val res = AuthRepository.verifyOtpAndResetPassword(email, otp, newPassword)
+            res.fold(
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
+                            isResettingPassword = false,
+                            showForgotPasswordDialog = false,
+                            isOtpSent = false,
+                            password = newPassword,
+                            successMessage = "Password reset successfully! You can now log in with your new password."
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    _uiState.update {
+                        it.copy(
+                            isResettingPassword = false,
+                            errorMessage = e.message ?: "Invalid or expired verification code."
+                        )
+                    }
+                }
+            )
         }
     }
 

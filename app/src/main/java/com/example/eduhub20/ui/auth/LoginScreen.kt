@@ -357,27 +357,126 @@ fun LoginScreen(
             }
         }
 
-        // Forgot Password Dialog
+        // ── In-App 2-Step OTP Forgot Password Dialog ───────────────────────
         if (uiState.showForgotPasswordDialog) {
             AlertDialog(
                 onDismissRequest = { viewModel.showForgotPasswordDialog(false) },
-                title = { Text("Reset Password") },
+                title = {
+                    Text(
+                        text = if (!uiState.isOtpSent) "Reset Password" else "Enter Recovery Code",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 text = {
-                    Column {
-                        Text("Enter your email address to receive password recovery instructions:")
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = uiState.forgotPasswordEmail,
-                            onValueChange = { viewModel.onForgotPasswordEmailChanged(it) },
-                            label = { Text("Email Address") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (uiState.errorMessage != null) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = uiState.errorMessage,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+
+                        if (!uiState.isOtpSent) {
+                            Text(
+                                text = "Enter your registered email address to receive a 6-digit verification code directly in your inbox:",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = uiState.forgotPasswordEmail,
+                                onValueChange = { viewModel.onForgotPasswordEmailChanged(it) },
+                                label = { Text("Email Address") },
+                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Text(
+                                text = "We sent a 6-digit recovery code to ${uiState.forgotPasswordEmail}. Enter the code and your new password below:",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = uiState.forgotPasswordOtp,
+                                onValueChange = { if (it.length <= 8) viewModel.onForgotPasswordOtpChanged(it) },
+                                label = { Text("6-Digit OTP Code") },
+                                placeholder = { Text("e.g. 123456") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = uiState.forgotPasswordNewPassword,
+                                onValueChange = { viewModel.onForgotPasswordNewPasswordChanged(it) },
+                                label = { Text("New Password (min 6 chars)") },
+                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(
+                                    onClick = { viewModel.sendPasswordResetOtp() },
+                                    enabled = !uiState.isResettingPassword
+                                ) {
+                                    Text("Resend Code", fontSize = 12.sp, color = EduHubPrimary)
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
-                    Button(onClick = { viewModel.sendPasswordReset() }) {
-                        Text("Send Reset Link")
+                    Button(
+                        onClick = {
+                            if (!uiState.isOtpSent) {
+                                viewModel.sendPasswordResetOtp()
+                            } else {
+                                viewModel.verifyOtpAndSetNewPassword()
+                            }
+                        },
+                        enabled = !uiState.isResettingPassword,
+                        colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary)
+                    ) {
+                        if (uiState.isResettingPassword) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text(if (!uiState.isOtpSent) "Send Code" else "Update Password")
                     }
                 },
                 dismissButton = {

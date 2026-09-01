@@ -8,6 +8,7 @@ import com.example.eduhub20.data.SupabaseConfig
 import com.example.eduhub20.data.ai.EduHubAiGenerator
 import com.example.eduhub20.data.local.EduHubLocalStorage
 import com.example.eduhub20.data.model.*
+import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.storage.storage
@@ -350,6 +351,23 @@ object AuthRepository {
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(Exception(parseAuthError(e, "Failed to send reset email. Please check the email address.")))
+        }
+    }
+
+    suspend fun verifyOtpAndResetPassword(email: String, token: String, newPassword: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.auth.verifyEmailOtp(
+                type = OtpType.Email.RECOVERY,
+                email = email.trim(),
+                token = token.trim()
+            )
+            SupabaseClientProvider.auth.updateUser {
+                password = newPassword.trim()
+            }
+            SupabaseClientProvider.auth.signOut()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(Exception(parseAuthError(e, "Invalid or expired OTP code. Please check your email and try again.")))
         }
     }
 
