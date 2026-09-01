@@ -63,7 +63,7 @@ fun Eduhub20Theme(
     content: @Composable () -> Unit
 ) {
     val useDarkTheme = ThemeState.isDarkTheme.value || darkTheme
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val colorScheme = if (useDarkTheme) DarkColorScheme else LightColorScheme
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
