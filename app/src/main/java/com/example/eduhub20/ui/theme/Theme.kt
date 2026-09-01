@@ -2,6 +2,7 @@ package com.example.eduhub20.ui.theme
 
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -57,6 +58,15 @@ private val LightColorScheme = lightColorScheme(
     onSurfaceVariant = EduHubTextSecondary
 )
 
+private fun Context.findActivity(): Activity? {
+    var current = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return null
+}
+
 @Composable
 fun Eduhub20Theme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -66,11 +76,14 @@ fun Eduhub20Theme(
     val colorScheme = if (useDarkTheme) DarkColorScheme else LightColorScheme
     val view = LocalView.current
     if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            @Suppress("DEPRECATION")
-            window.statusBarColor = colorScheme.background.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+        val activity = view.context.findActivity()
+        if (activity != null) {
+            SideEffect {
+                val window = activity.window
+                @Suppress("DEPRECATION")
+                window.statusBarColor = colorScheme.background.toArgb()
+                WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !useDarkTheme
+            }
         }
     }
 
