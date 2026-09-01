@@ -33,11 +33,12 @@ class MainActivity : ComponentActivity() {
 
         com.example.eduhub20.data.local.EduHubLocalStorage.init(applicationContext)
         com.example.eduhub20.data.ai.GeminiConfig.init(applicationContext)
+        com.example.eduhub20.ui.theme.ThemeState.init(applicationContext)
 
         val networkObserver = NetworkConnectivityObserver(applicationContext)
 
         setContent {
-            Eduhub20Theme {
+            Eduhub20Theme(darkTheme = false) {
                 val uiState by authViewModel.uiState.collectAsState()
                 val isOnline by networkObserver.isOnline.collectAsState(initial = true)
 
@@ -58,8 +59,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
-//Redo
 
 @androidx.compose.runtime.Composable
 private fun BoxContent(

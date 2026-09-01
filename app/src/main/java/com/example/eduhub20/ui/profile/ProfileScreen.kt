@@ -21,8 +21,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.AlertDialog
@@ -50,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +62,8 @@ import com.example.eduhub20.data.repository.CourseRepository
 import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import com.example.eduhub20.ui.theme.ThemeState
+import com.example.eduhub20.ui.theme.saveTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,7 +78,8 @@ fun ProfileScreen(
     var showEditNameDialog by remember { mutableStateOf(false) }
     var editedName by remember { mutableStateOf(currentUser?.name ?: "") }
     var notificationsEnabled by remember { mutableStateOf(true) }
-
+    val isDarkTheme = ThemeState.isDarkTheme.value
+    val context = LocalContext.current
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -198,9 +204,52 @@ fun ProfileScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    Text("Preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                    Text(
+                        "Preferences",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = EduHubPrimary
+                    )
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    // Theme Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (isDarkTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
+                                contentDescription = if (isDarkTheme) "Dark Mode" else "Light Mode",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = if (isDarkTheme) "Dark Theme" else "Light Theme",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Switch(
+                            checked = isDarkTheme,
+                            onCheckedChange = {
+                                ThemeState.toggleTheme()
+                                ThemeState.saveTheme(context)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = EduHubPrimary,
+                                uncheckedThumbColor = Color.White,
+                                uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+                }
+            }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Notifications Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -214,12 +263,14 @@ fun ProfileScreen(
                         Switch(
                             checked = notificationsEnabled,
                             onCheckedChange = { notificationsEnabled = it },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = EduHubPrimary)
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = EduHubPrimary,
+                                uncheckedThumbColor = Color.White,
+                                uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
                         )
                     }
-                }
-            }
-
             Spacer(modifier = Modifier.height(28.dp))
 
             // Sign Out Button
