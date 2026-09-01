@@ -1193,7 +1193,7 @@ object StudyGroupRepository {
                     senderRole = dto.senderRole,
                     message = dto.message,
                     timestamp = dto.timestamp,
-                    isFromMe = dto.senderName.equals(currentUserName, ignoreCase = true) || dto.isFromMe
+                    isFromMe = dto.senderName.equals(currentUserName, ignoreCase = true) //ori:|| dto.isFromMe
                 )
             }
             if (remoteMapped.isNotEmpty()) {
