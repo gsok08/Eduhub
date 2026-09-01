@@ -527,42 +527,35 @@ fun NoteDetailAiScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        // Test Connection Button
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Emulator: 10.0.2.2:5000\nPhone: Laptop Wi-Fi IP",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            OutlinedButton(
-                                onClick = {
-                                    isTestingConnection = true
-                                    testConnectionStatus = null
-                                    scope.launch {
-                                        val (success, msg) = EduHubAiGenerator.testBackendConnection(backendUrlInput)
-                                        testConnectionStatus = if (success) "✅ $msg" else "❌ $msg"
-                                        isTestingConnection = false
-                                    }
-                                },
-                                enabled = !isTestingConnection,
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                if (isTestingConnection) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                    Spacer(modifier = Modifier.width(4.dp))
+                        // Test Connection Full-Width Button
+                        Button(
+                            onClick = {
+                                isTestingConnection = true
+                                testConnectionStatus = null
+                                scope.launch {
+                                    val (success, msg) = EduHubAiGenerator.testBackendConnection(backendUrlInput)
+                                    testConnectionStatus = if (success) "✅ $msg" else "❌ $msg"
+                                    isTestingConnection = false
                                 }
-                                Text("Test Connection", fontSize = 11.sp)
+                            },
+                            enabled = !isTestingConnection,
+                            colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().height(42.dp)
+                        ) {
+                            if (isTestingConnection) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Connecting to Server...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                Text("Test Connection", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
                         if (testConnectionStatus != null) {
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = testConnectionStatus!!,
                                 style = MaterialTheme.typography.bodySmall,
