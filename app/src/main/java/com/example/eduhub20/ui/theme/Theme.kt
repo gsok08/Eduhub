@@ -28,23 +28,14 @@ object ThemeState {
 
     fun toggleTheme() {
         isDarkTheme.value = !isDarkTheme.value
-        saveTheme()
     }
 
-    fun setTheme(isDark: Boolean) {
-        isDarkTheme.value = isDark
-        saveTheme()
-    }
-
-    private fun saveTheme() {
-        // Save to SharedPreferences - will be called from context
+    fun saveTheme(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit { putBoolean(KEY_DARK_THEME, isDarkTheme.value) }
     }
 }
 
-fun ThemeState.saveTheme(context: Context) {
-    val prefs = context.getSharedPreferences(ThemeState.PREFS_NAME, Context.MODE_PRIVATE)
-    prefs.edit { putBoolean(ThemeState.KEY_DARK_THEME, ThemeState.isDarkTheme.value) }
-}
 private val DarkColorScheme = darkColorScheme(
     primary = EduHubSecondary,
     secondary = EduHubAccentGreen,
@@ -77,6 +68,7 @@ fun Eduhub20Theme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
+            @Suppress("DEPRECATION")
             window.statusBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !useDarkTheme
         }

@@ -58,12 +58,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.eduhub20.data.model.EduHubUser
 import com.example.eduhub20.data.model.UserRole
-import com.example.eduhub20.data.repository.CourseRepository
 import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
 import com.example.eduhub20.ui.theme.ThemeState
-import com.example.eduhub20.ui.theme.saveTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,7 +72,7 @@ fun ProfileScreen(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val courses = CourseRepository.getCourses()
+    //val courses = CourseRepository.getCourses()
     var showEditNameDialog by remember { mutableStateOf(false) }
     var editedName by remember { mutableStateOf(currentUser?.name ?: "") }
     var notificationsEnabled by remember { mutableStateOf(true) }
@@ -212,7 +210,6 @@ fun ProfileScreen(
                     )
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Theme Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
