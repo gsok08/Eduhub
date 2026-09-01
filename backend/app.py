@@ -27,8 +27,8 @@ CORS(app)  # Enable Cross-Origin Resource Sharing for Android app requests
 
 # Configuration
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+MODELS_TO_TRY = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite"]
 
 def get_local_ip():
     """Detects the laptop's LAN IP address on Wi-Fi/Ethernet."""
@@ -54,14 +54,12 @@ def clean_json_response(raw_text: str) -> dict:
     return json.loads(text)
 
 def call_gemini_rest(prompt: str, pdf_base64: str = None, api_key: str = None) -> str:
-    """Calls Gemini API using standard REST API."""
+    """Calls Gemini API using standard REST API with automatic model fallback."""
     key = api_key or GEMINI_API_KEY
     if not key:
         raise ValueError("GEMINI_API_KEY is not configured.")
 
-    url = f"{GEMINI_ENDPOINT}?key={key}"
     parts = []
-
     if pdf_base64:
         parts.append({
             "inlineData": {
@@ -69,7 +67,6 @@ def call_gemini_rest(prompt: str, pdf_base64: str = None, api_key: str = None) -
                 "data": pdf_base64
             }
         })
-
     parts.append({"text": prompt})
 
     payload = {
@@ -78,24 +75,30 @@ def call_gemini_rest(prompt: str, pdf_base64: str = None, api_key: str = None) -
             "responseMimeType": "application/json"
         }
     }
-
     headers = {"Content-Type": "application/json"}
-    response = requests.post(url, json=payload, headers=headers, timeout=45)
-    
-    if response.status_code != 200:
-        raise Exception(f"Gemini API returned error {response.status_code}: {response.text}")
 
-    data = response.json()
-    candidates = data.get("candidates", [])
-    if not candidates:
-        raise Exception("No response candidates returned from Gemini.")
+    last_error = None
+    models = [GEMINI_MODEL] + [m for m in MODELS_TO_TRY if m != GEMINI_MODEL]
+    for model_name in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={key}"
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=45)
+            if response.status_code == 200:
+                data = response.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    content = candidates[0].get("content", {})
+                    parts_out = content.get("parts", [])
+                    if parts_out:
+                        return parts_out[0].get("text", "")
+            else:
+                last_error = f"Model {model_name} returned error {response.status_code}: {response.text}"
+                print(f"[Gemini] {last_error}")
+        except Exception as e:
+            last_error = f"Model {model_name} request failed: {e}"
+            print(f"[Gemini] {last_error}")
 
-    content = candidates[0].get("content", {})
-    parts_out = content.get("parts", [])
-    if not parts_out:
-        raise Exception("No text content returned from Gemini.")
-
-    return parts_out[0].get("text", "")
+    raise Exception(last_error or "Failed to call Gemini API across all models.")
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
