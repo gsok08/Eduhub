@@ -9,8 +9,6 @@ import com.example.eduhub20.data.ai.EduHubAiGenerator
 import com.example.eduhub20.data.local.EduHubLocalStorage
 import com.example.eduhub20.data.model.*
 import io.github.jan.supabase.auth.providers.builtin.Email
-import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,11 +16,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
+import androidx.core.content.edit
 
 @Serializable
 data class ProfileDto(
@@ -30,6 +28,10 @@ data class ProfileDto(
     @SerialName("full_name")
     val fullName: String,
     val role: String = "STUDENT",
+    @SerialName("avatar_url")
+    val avatarUrl: String? = null,
+    @SerialName("campus")
+    val campus: String? = null,
     @SerialName("updated_at")
     val updatedAt: String = "2026-08-29T00:00:00Z"
 )
@@ -195,6 +197,7 @@ object AuthRepository {
         _currentUser.value = user
         StudyGroupRepository.onUserSignedIn(user)
         CourseRepository.onUserSignedIn(user)
+        Log.d("AuthRepository", "✅ User restored with avatar: ${user.avatarUrl}")
     }
 
     suspend fun signInAsLecturer(email: String, password: String): Result<EduHubUser> = withContext(Dispatchers.IO) {
@@ -212,6 +215,8 @@ object AuthRepository {
 
             var resolvedName: String? = null
             var roleInDb: String? = null
+            var avatarUrl: String? = null
+            var campus: String? = null
 
             try {
                 val profile = SupabaseClientProvider.postgrest.from("profiles")
@@ -220,6 +225,8 @@ object AuthRepository {
                 if (profile != null) {
                     resolvedName = profile.fullName
                     roleInDb = profile.role
+                    avatarUrl = profile.avatarUrl
+                    campus = profile.campus
                 }
             } catch (_: Exception) {}
 
@@ -239,12 +246,19 @@ object AuthRepository {
                 }
                 try {
                     SupabaseClientProvider.postgrest.from("profiles").upsert(
-                        ProfileDto(id = userId, fullName = resolvedName, role = "LECTURER")
+                        ProfileDto(id = userId, fullName = resolvedName, role = "LECTURER", avatarUrl = null)
                     )
                 } catch (_: Exception) {}
             }
 
-            val user = EduHubUser(userId, trimmedEmail, resolvedName, UserRole.LECTURER)
+            val user = EduHubUser(
+                userId,
+                trimmedEmail,
+                resolvedName,
+                UserRole.LECTURER,
+                avatarUrl = avatarUrl,
+                campus = campus
+            )
             _currentUser.value = user
             StudyGroupRepository.onUserSignedIn(user)
             CourseRepository.onUserSignedIn(user)
@@ -268,6 +282,8 @@ object AuthRepository {
 
             var resolvedName: String? = null
             var roleInDb: String? = null
+            var avatarUrl: String? = null
+            var campus: String? = null
 
             try {
                 val profile = SupabaseClientProvider.postgrest.from("profiles")
@@ -276,6 +292,8 @@ object AuthRepository {
                 if (profile != null) {
                     resolvedName = profile.fullName
                     roleInDb = profile.role
+                    avatarUrl = profile.avatarUrl
+                    campus = profile.campus
                 }
             } catch (_: Exception) {}
 
@@ -295,12 +313,19 @@ object AuthRepository {
                 }
                 try {
                     SupabaseClientProvider.postgrest.from("profiles").upsert(
-                        ProfileDto(id = userId, fullName = resolvedName, role = "STUDENT")
+                        ProfileDto(id = userId, fullName = resolvedName, role = "STUDENT", avatarUrl = null)
                     )
                 } catch (_: Exception) {}
             }
 
-            val user = EduHubUser(userId, trimmedEmail, resolvedName, UserRole.STUDENT)
+            val user = EduHubUser(
+                userId,
+                trimmedEmail,
+                resolvedName,
+                UserRole.STUDENT,
+                avatarUrl = avatarUrl,
+                campus = campus
+                )
             _currentUser.value = user
             StudyGroupRepository.onUserSignedIn(user)
             CourseRepository.onUserSignedIn(user)
@@ -327,14 +352,27 @@ object AuthRepository {
             }
             val userObj = SupabaseClientProvider.auth.currentUserOrNull()
             val userId = userObj?.id ?: UUID.randomUUID().toString()
-            val user = EduHubUser(userId, trimmedEmail, defaultName, UserRole.STUDENT)
 
             try {
                 SupabaseClientProvider.postgrest.from("profiles").upsert(
-                    ProfileDto(id = userId, fullName = defaultName, role = "STUDENT")
+                    ProfileDto(
+                        id = userId,
+                        fullName = defaultName,
+                        role = "STUDENT",
+                        avatarUrl = null,
+                        campus = null
+                    )
                 )
             } catch (_: Exception) {}
 
+            val user = EduHubUser(
+                id = userId,
+                email = trimmedEmail,
+                name = defaultName,
+                role = UserRole.STUDENT,
+                avatarUrl = null,
+                campus = null
+            )
             _currentUser.value = user
             StudyGroupRepository.onUserSignedIn(user)
             CourseRepository.onUserSignedIn(user)
@@ -367,12 +405,79 @@ object AuthRepository {
 
         try {
             SupabaseClientProvider.postgrest.from("profiles").upsert(
-                ProfileDto(id = user.id, fullName = trimmed, role = user.role.name)
+                ProfileDto(
+                    id = user.id,
+                    fullName = trimmed,
+                    role = user.role.name,
+                    avatarUrl = user.avatarUrl,
+                    campus = user.campus
+                )
             )
         } catch (_: Exception) {}
 
         _currentUser.value = user.copy(name = trimmed)
     }
+
+    suspend fun updateProfileAvatar(avatarUrl: String, context: Context): Result<Unit> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.failure(Exception("User not logged in"))
+
+        try {
+            // Update Supabase
+            SupabaseClientProvider.postgrest.from("profiles")
+                .update(mapOf("avatar_url" to avatarUrl)) {
+                    filter { eq("id", user.id) }
+                }
+
+            // Update local user
+            _currentUser.value = user.copy(avatarUrl = avatarUrl)
+
+            // ✅ Update SharedPreferences
+            val prefs = context.getSharedPreferences("eduhub_auth_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("remember_me", false)) {
+                prefs.edit().putString("saved_user_avatar_url", avatarUrl).apply()
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Failed to update avatar: ${e.message}")
+            Result.failure(Exception("Failed to update avatar: ${e.message}"))
+        }
+    }
+
+    suspend fun updateCampus(campus: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val user = _currentUser.value ?: return@withContext Result.failure(Exception("User not logged in"))
+
+        try {
+            // Update profiles table in Supabase
+            SupabaseClientProvider.postgrest.from("profiles")
+                .update(
+                    mapOf("campus" to campus)
+                ) {
+                    filter { eq("id", user.id) }
+                }
+
+            // Update local user
+            _currentUser.value = user.copy(campus = campus)
+
+            // Update SharedPreferences if remember me is enabled
+            try {
+                val context = android.app.Application().applicationContext
+                val prefs = context.getSharedPreferences("eduhub_auth_prefs", Context.MODE_PRIVATE)
+                if (prefs.getBoolean("remember_me", false)) {
+                    prefs.edit { putString("saved_user_campus", campus) }
+                }
+            } catch (e: Exception) {
+                Log.e("AuthRepository", "Failed to update SharedPreferences: ${e.message}")
+            }
+
+            Log.d("AuthRepository", "✅ Campus updated to: $campus")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Failed to update campus: ${e.message}")
+            Result.failure(Exception("Failed to update campus: ${e.message}"))
+        }
+    }
+
 
     fun signOut() {
         try {
@@ -383,7 +488,6 @@ object AuthRepository {
         CourseRepository.onUserSignOut()
     }
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Course Repository (Enrollment Scoping, Student Roster & Course Hiding)
 // ─────────────────────────────────────────────────────────────────────────────

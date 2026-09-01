@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.example.eduhub20.ui.auth.AuthViewModel
 import com.example.eduhub20.ui.auth.LoginScreen
@@ -38,7 +37,7 @@ class MainActivity : ComponentActivity() {
         val networkObserver = NetworkConnectivityObserver(applicationContext)
 
         setContent {
-            Eduhub20Theme {
+            Eduhub20Theme(darkTheme = false){
                 val uiState by authViewModel.uiState.collectAsState()
                 val isOnline by networkObserver.isOnline.collectAsState(initial = true)
 

@@ -12,7 +12,9 @@ data class EduHubUser(
     val email: String,
     val name: String,
     val role: UserRole,
-    val joinedDate: String = "2026-08-20"
+    val joinedDate: String = "2026-08-20",
+    val avatarUrl: String? = null,
+    val campus: String? = null
 )
 
 @Serializable
@@ -152,3 +154,34 @@ data class PastYearPaper(
     val totalMarks: Int = 100,
     val pdfUrl: String = ""
 )
+
+// ✅ Add this - Campus data class
+@Serializable
+data class Campus(
+    val id: String,
+    val name: String,
+    val location: String,
+    val iconRes: Int = 0  // Optional: for different campus icons
+)
+
+// ✅ Add this - Campus list
+object CampusData {
+    val campusList = listOf(
+        Campus("campus_1", "Kuala Lumpur", "Kuala Lumpur"),
+        Campus("campus_2", "Selangor", "Petaling Jaya"),
+        Campus("campus_3", "Penang", "George Town"),
+        Campus("campus_4", "Johor", "Johor Bahru"),
+        Campus("campus_5", "Sarawak", "Kuching"),
+        Campus("campus_6", "Sabah", "Kota Kinabalu")
+    )
+
+    // Helper function to get campus by ID
+    fun getCampusById(id: String): Campus? {
+        return campusList.find { it.id == id }
+    }
+
+    // Helper function to get campus by name
+    fun getCampusByName(name: String): Campus? {
+        return campusList.find { it.name.equals(name, ignoreCase = true) }
+    }
+}

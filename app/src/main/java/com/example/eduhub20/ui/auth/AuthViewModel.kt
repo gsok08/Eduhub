@@ -2,6 +2,7 @@ package com.example.eduhub20.ui.auth
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.eduhub20.data.model.EduHubUser
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import androidx.core.content.edit
 
 data class AuthUiState(
     val email: String = "",
@@ -42,6 +44,8 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             val savedEmail = prefs.getString("saved_user_email", null)
             val savedName = prefs.getString("saved_user_name", null)
             val savedRoleStr = prefs.getString("saved_user_role", UserRole.STUDENT.name)
+            val savedAvatarUrl = prefs.getString("saved_user_avatar_url", null)
+            val savedCampus = prefs.getString("saved_user_campus", null)
             val savedRole = try {
                 UserRole.valueOf(savedRoleStr ?: UserRole.STUDENT.name)
             } catch (e: Exception) {
@@ -49,7 +53,18 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             if (!savedId.isNullOrBlank() && !savedEmail.isNullOrBlank() && !savedName.isNullOrBlank()) {
-                val restoredUser = EduHubUser(savedId, savedEmail, savedName, savedRole)
+                val restoredUser = EduHubUser(
+                    id = savedId,
+                    email = savedEmail,
+                    name = savedName,
+                    role = savedRole,
+                    avatarUrl = savedAvatarUrl,
+                    campus = savedCampus
+                    )
+
+                Log.d("AuthViewModel", "✅ Restoring user with campus: ${restoredUser.campus}")
+                Log.d("AuthViewModel", "✅ Restoring user with avatar: ${restoredUser.avatarUrl}")
+
                 AuthRepository.restoreUser(restoredUser)
                 _uiState.update { it.copy(currentUser = restoredUser, rememberMe = true) }
             }
@@ -57,6 +72,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             AuthRepository.currentUser.collect { user ->
+                Log.d("AuthViewModel", "🔄 AuthRepository.currentUser updated: ${user?.avatarUrl}")
                 _uiState.update { it.copy(currentUser = user) }
             }
         }
@@ -132,6 +148,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                 .putString("saved_user_email", user.email)
                                 .putString("saved_user_name", user.name)
                                 .putString("saved_user_role", user.role.name)
+                                .putString("saved_user_avatar_url", user.avatarUrl)
                                 .apply()
                         }
                         _uiState.update { it.copy(isLoading = false, currentUser = user) }
@@ -152,6 +169,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                     .putString("saved_user_email", user.email)
                                     .putString("saved_user_name", user.name)
                                     .putString("saved_user_role", user.role.name)
+                                    .putString("saved_user_avatar_url", user.avatarUrl)
                                     .apply()
                             }
                             _uiState.update { it.copy(isLoading = false, currentUser = user) }
@@ -171,6 +189,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                     .putString("saved_user_email", user.email)
                                     .putString("saved_user_name", user.name)
                                     .putString("saved_user_role", user.role.name)
+                                    .putString("saved_user_avatar_url", user.avatarUrl)
                                     .apply()
                             }
                             _uiState.update { it.copy(isLoading = false, currentUser = user) }
@@ -211,7 +230,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun signOut() {
-        prefs.edit().clear().apply()
+        prefs.edit { clear() }
         AuthRepository.signOut()
         _uiState.update {
             it.copy(
