@@ -59,6 +59,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+//Redo
+
 @androidx.compose.runtime.Composable
 private fun BoxContent(
     isAuthenticated: Boolean,
