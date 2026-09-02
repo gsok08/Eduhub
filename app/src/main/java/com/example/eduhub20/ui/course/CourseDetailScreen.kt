@@ -71,8 +71,10 @@ import com.example.eduhub20.data.repository.NoteQuizRepository
 import com.example.eduhub20.ui.theme.CardBlue
 import com.example.eduhub20.ui.theme.CardCoral
 import com.example.eduhub20.ui.theme.CardGreen
+import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,21 +104,27 @@ fun CourseDetailScreen(
         mutableStateListOf<EnrolledStudent>()
     }
 
-    // Fetch live announcements, notes, and enrolled students from Supabase
+    // Live Real-Time Auto-Refresh: Poll announcements, notes, and enrolled students from Supabase every 10s
     LaunchedEffect(courseId) {
         if (course != null) {
-            val remoteAnn = CourseRepository.fetchAnnouncementsFromSupabase(course.id)
-            announcements.clear()
-            announcements.addAll(remoteAnn)
+            while (true) {
+                val remoteAnn = CourseRepository.fetchAnnouncementsFromSupabase(course.id)
+                if (remoteAnn.isNotEmpty() || announcements.isEmpty()) {
+                    announcements.clear()
+                    announcements.addAll(remoteAnn)
+                }
 
-            val remoteNotes = NoteQuizRepository.fetchNotesFromSupabase()
-            notes.clear()
-            notes.addAll(remoteNotes.filter { it.courseCode.equals(course.code, ignoreCase = true) || course.code.isBlank() })
+                val remoteNotes = NoteQuizRepository.fetchNotesFromSupabase()
+                val matchingNotes = remoteNotes.filter { it.courseCode.equals(course.code, ignoreCase = true) || course.code.isBlank() }
+                notes.clear()
+                notes.addAll(matchingNotes)
 
-            if (isLecturer) {
-                val students = CourseRepository.fetchEnrolledStudents(course.id)
-                enrolledStudents.clear()
-                enrolledStudents.addAll(students)
+                if (isLecturer) {
+                    val students = CourseRepository.fetchEnrolledStudents(course.id)
+                    enrolledStudents.clear()
+                    enrolledStudents.addAll(students)
+                }
+                delay(10_000L)
             }
         }
     }
@@ -337,7 +345,7 @@ fun CourseDetailScreen(
                                             Spacer(modifier = Modifier.width(12.dp))
                                             Column {
                                                 Text(student.fullName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                                Text("ID: ${student.userId.take(8)}...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("Enrolled Student", style = MaterialTheme.typography.labelSmall, color = EduHubAccentGreen)
                                             }
                                         }
 

@@ -280,4 +280,15 @@ object EduHubLocalStorage {
             emptyList()
         }
     }
+
+    // ── Student Name Cache ───────────────────────────────────────────────
+    fun saveStudentName(userId: String, name: String) {
+        if (userId.isNotBlank() && name.isNotBlank()) {
+            prefs?.edit { putString("student_name_" + userId.trim(), name.trim()) }
+        }
+    }
+
+    fun loadStudentName(userId: String): String? {
+        return prefs?.getString("student_name_" + userId.trim(), null)
+    }
 }

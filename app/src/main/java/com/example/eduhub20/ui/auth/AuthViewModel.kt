@@ -46,6 +46,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             val savedEmail = prefs.getString("saved_user_email", null)
             val savedName = prefs.getString("saved_user_name", null)
             val savedRoleStr = prefs.getString("saved_user_role", UserRole.STUDENT.name)
+            val savedSessionId = prefs.getString("saved_session_id", "") ?: ""
             val savedRole = try {
                 UserRole.valueOf(savedRoleStr ?: UserRole.STUDENT.name)
             } catch (e: Exception) {
@@ -54,7 +55,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
             if (!savedId.isNullOrBlank() && !savedEmail.isNullOrBlank() && !savedName.isNullOrBlank()) {
                 val restoredUser = EduHubUser(savedId, savedEmail, savedName, savedRole)
-                AuthRepository.restoreUser(restoredUser)
+                AuthRepository.restoreUser(restoredUser, savedSessionId)
                 _uiState.update { it.copy(currentUser = restoredUser, rememberMe = true) }
             }
         }
@@ -148,6 +149,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                 .putString("saved_user_email", user.email)
                                 .putString("saved_user_name", user.name)
                                 .putString("saved_user_role", user.role.name)
+                                .putString("saved_session_id", AuthRepository.currentSessionId)
                                 .apply()
                         }
                         _uiState.update { it.copy(isLoading = false, currentUser = user) }
@@ -168,6 +170,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                     .putString("saved_user_email", user.email)
                                     .putString("saved_user_name", user.name)
                                     .putString("saved_user_role", user.role.name)
+                                    .putString("saved_session_id", AuthRepository.currentSessionId)
                                     .apply()
                             }
                             _uiState.update { it.copy(isLoading = false, currentUser = user) }
@@ -187,6 +190,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                     .putString("saved_user_email", user.email)
                                     .putString("saved_user_name", user.name)
                                     .putString("saved_user_role", user.role.name)
+                                    .putString("saved_session_id", AuthRepository.currentSessionId)
                                     .apply()
                             }
                             _uiState.update { it.copy(isLoading = false, currentUser = user) }
@@ -282,7 +286,17 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun signOut() {
+    fun verifySingleDeviceSession() {
+        val user = _uiState.value.currentUser ?: return
+        viewModelScope.launch {
+            val isValid = AuthRepository.checkSessionValid(user.id)
+            if (!isValid) {
+                signOut(forcedMessage = "⚠️ Your account was logged in on another device. You have been signed out.")
+            }
+        }
+    }
+
+    fun signOut(forcedMessage: String? = null) {
         prefs.edit().clear().apply()
         AuthRepository.signOut()
         _uiState.update {
@@ -291,7 +305,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 email = "",
                 password = "",
                 rememberMe = false,
-                errorMessage = null,
+                errorMessage = forcedMessage,
                 successMessage = null
             )
         }

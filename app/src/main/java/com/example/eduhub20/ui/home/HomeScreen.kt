@@ -32,6 +32,7 @@ import com.example.eduhub20.ui.theme.CardGreen
 import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,11 +56,14 @@ fun HomeScreen(
         courses.addAll(CourseRepository.getCoursesForUser(currentUser))
     }
 
-    // Fetch live courses from Supabase and refresh user's courses
+    // Live Periodic Auto-Refresh (every 15s) from Supabase
     LaunchedEffect(currentUser?.id) {
-        CourseRepository.fetchCoursesFromSupabase()
-        refreshCourses()
-        NoteQuizRepository.fetchNotesFromSupabase()
+        while (true) {
+            CourseRepository.fetchCoursesFromSupabase()
+            refreshCourses()
+            NoteQuizRepository.fetchNotesFromSupabase()
+            delay(15_000L)
+        }
     }
 
     // Global search

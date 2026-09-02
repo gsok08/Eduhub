@@ -3,14 +3,17 @@
 -- Run this entire script in your Supabase Dashboard -> SQL Editor -> Run (▶️)
 -- =============================================================================
 
--- 1. Profiles Table (Tracks User Display Name, Email, and Role)
+-- 1. Profiles Table (Tracks User Display Name, Email, Role, and Active Single-Device Session)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
     email TEXT,
     role TEXT DEFAULT 'STUDENT', -- 'STUDENT' or 'LECTURER'
+    active_session_id TEXT DEFAULT '',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS active_session_id TEXT DEFAULT '';
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on profiles" ON public.profiles;
@@ -38,9 +41,14 @@ CREATE TABLE IF NOT EXISTS public.course_enrollments (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     user_id TEXT NOT NULL,
     course_id TEXT NOT NULL,
+    student_name TEXT DEFAULT '',
+    student_email TEXT DEFAULT '',
     enrolled_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (user_id, course_id)
 );
+
+ALTER TABLE public.course_enrollments ADD COLUMN IF NOT EXISTS student_name TEXT DEFAULT '';
+ALTER TABLE public.course_enrollments ADD COLUMN IF NOT EXISTS student_email TEXT DEFAULT '';
 
 ALTER TABLE public.course_enrollments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on course_enrollments" ON public.course_enrollments;
@@ -103,8 +111,11 @@ CREATE TABLE IF NOT EXISTS public.study_groups (
     current_members INT DEFAULT 1,
     max_members INT DEFAULT 6,
     category TEXT DEFAULT 'GROUP',
+    host_user_id TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.study_groups ADD COLUMN IF NOT EXISTS host_user_id TEXT DEFAULT '';
 
 ALTER TABLE public.study_groups ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on study_groups" ON public.study_groups;

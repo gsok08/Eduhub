@@ -44,11 +44,20 @@ fun StudyGroupScreen(
     // Search query for recommended groups
     var searchGroupQuery by remember { mutableStateOf("") }
 
-    // Fetch live study groups from Supabase for this user
+    // Live Auto-Refresh: Fetch live study groups from Supabase continuously every 10s
     LaunchedEffect(currentUser?.id) {
-        val remoteGroups = StudyGroupRepository.fetchGroupsFromSupabase()
-        groups.clear()
-        groups.addAll(remoteGroups)
+        while (true) {
+            val remoteGroups = StudyGroupRepository.fetchGroupsFromSupabase()
+            if (remoteGroups.isNotEmpty()) {
+                val currentIds = groups.map { it.id }.toSet()
+                val remoteIds = remoteGroups.map { it.id }.toSet()
+                if (currentIds != remoteIds || remoteGroups.any { r -> groups.find { it.id == r.id }?.currentMembers != r.currentMembers }) {
+                    groups.clear()
+                    groups.addAll(remoteGroups)
+                }
+            }
+            delay(10_000L)
+        }
     }
 
     var newGroupName by remember { mutableStateOf("") }

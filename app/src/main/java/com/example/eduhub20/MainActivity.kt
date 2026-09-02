@@ -42,6 +42,16 @@ class MainActivity : ComponentActivity() {
                 val uiState by authViewModel.uiState.collectAsState()
                 val isOnline by networkObserver.isOnline.collectAsState(initial = true)
 
+                // Single Device Login Enforcement: Check if session is still valid
+                androidx.compose.runtime.LaunchedEffect(uiState.currentUser?.id) {
+                    if (uiState.currentUser != null) {
+                        while (true) {
+                            kotlinx.coroutines.delay(15_000L)
+                            authViewModel.verifySingleDeviceSession()
+                        }
+                    }
+                }
+
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(modifier = Modifier.fillMaxSize()) {
                         // Top Offline Notice Banner

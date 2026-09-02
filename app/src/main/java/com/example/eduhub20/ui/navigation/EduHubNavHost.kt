@@ -170,6 +170,7 @@ fun EduHubNavHost(
             // Tab 3: Note / Quiz
             composable(Screen.NoteQuiz.route) {
                 NoteQuizScreen(
+                    currentUser = currentUser,
                     onNavigateToNoteDetail = { noteId ->
                         navController.navigate(Screen.NoteDetailAi.createRoute(noteId))
                     },

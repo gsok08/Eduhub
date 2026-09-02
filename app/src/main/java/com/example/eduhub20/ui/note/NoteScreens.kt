@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -77,23 +78,32 @@ import com.example.eduhub20.ui.theme.CardBlue
 import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import com.example.eduhub20.data.model.EduHubUser
+import com.example.eduhub20.data.model.UserRole
+import com.example.eduhub20.data.repository.CourseRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
 fun NoteQuizScreen(
+    currentUser: EduHubUser? = null,
     onNavigateToNoteDetail: (String) -> Unit,
     onNavigateToQuiz: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
-    val notesList = remember { mutableStateListOf(*NoteQuizRepository.getNotes().toTypedArray()) }
+    val notesList = remember(currentUser?.id) { mutableStateListOf(*NoteQuizRepository.getNotesForUser(currentUser).toTypedArray()) }
 
-    // Fetch notes from Supabase
-    LaunchedEffect(Unit) {
-        val remote = NoteQuizRepository.fetchNotesFromSupabase()
-        notesList.clear()
-        notesList.addAll(remote)
+    // Live Auto-Refresh: Fetch notes from Supabase every 15 seconds
+    LaunchedEffect(currentUser?.id) {
+        while (true) {
+            NoteQuizRepository.fetchNotesFromSupabase()
+            val userNotes = NoteQuizRepository.getNotesForUser(currentUser)
+            notesList.clear()
+            notesList.addAll(userNotes)
+            delay(15_000L)
+        }
     }
 
     val filteredNotes = notesList.filter {
@@ -102,7 +112,7 @@ fun NoteQuizScreen(
                 it.semesterPeriod.contains(searchQuery, true) ||
                 it.courseCode.contains(searchQuery, true)
     }
-    val quizHistory = NoteQuizRepository.getQuizHistory()
+    val quizHistory = NoteQuizRepository.getQuizHistoryForUser(currentUser)
 
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
         OutlinedTextField(
@@ -288,7 +298,8 @@ fun NoteDetailAiScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var aiNote by remember { mutableStateOf<AiGeneratedNote?>(null) }
-    var isGenerating by remember { mutableStateOf(true) }
+    var isGenerating by remember { mutableStateOf(false) }
+    var isCheckingCache by remember { mutableStateOf(true) }
     var showPdfViewer by remember { mutableStateOf(false) }
 
     // Edit Study Note state
@@ -314,13 +325,21 @@ fun NoteDetailAiScreen(
     fun loadOrGenerate(force: Boolean = false) {
         scope.launch {
             isGenerating = true
-            aiNote = NoteQuizRepository.getOrGenerateAiNote(rawNote, forceRegenerate = force)
-            isGenerating = false
+            try {
+                aiNote = NoteQuizRepository.getOrGenerateAiNote(rawNote, forceRegenerate = force)
+            } catch (_: Exception) {
+                snackbarHostState.showSnackbar("Unable to generate AI note. Please check your connection or backend settings.")
+            } finally {
+                isGenerating = false
+            }
         }
     }
 
+    // Load only cached notes on opening (never auto-triggers Gemini API or fails offline!)
     LaunchedEffect(noteId) {
-        loadOrGenerate(force = false)
+        isCheckingCache = true
+        aiNote = NoteQuizRepository.fetchCachedAiNoteFromSupabaseOrDisk(noteId)
+        isCheckingCache = false
     }
 
     if (showPdfViewer) {
@@ -338,7 +357,7 @@ fun NoteDetailAiScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("AI Study Note", fontWeight = FontWeight.Bold) },
+                title = { Text("Lecture Note & AI", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -372,57 +391,150 @@ fun NoteDetailAiScreen(
         },
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
-        if (isGenerating || aiNote == null) {
-            Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = EduHubPrimary)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("EduHub AI is analyzing lecture materials...", fontWeight = FontWeight.Medium)
-                    Text("Reading PDF slides & extracting core takeaways", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        } else {
-            val note = aiNote!!
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            // ── Original Note Header Card (Always available offline) ───────
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = CardBlue)
             ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardBlue)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = EduHubPrimary, modifier = Modifier.size(20.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("AI Study Guide (Saved)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = EduHubPrimary)
-                            }
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${rawNote.courseCode} · ${rawNote.semesterPeriod}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = EduHubPrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = rawNote.chapterTitle,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = Color(0xFF0F172A)
+                            )
+                            Text(
+                                text = rawNote.courseTitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF334155)
+                            )
+                        }
+
+                        if (!rawNote.pdfUrl.isNullOrBlank() || !rawNote.pdfFileName.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.width(8.dp))
                             OutlinedButton(
                                 onClick = { showPdfViewer = true },
                                 shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.height(32.dp)
+                                modifier = Modifier.height(34.dp)
                             ) {
-                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(14.dp), tint = EduHubPrimary)
+                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(15.dp), tint = EduHubPrimary)
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("View Slides", fontSize = 11.sp)
+                                Text("Slides", fontSize = 12.sp)
                             }
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(note.title, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Color(0xFF0F172A))
-                        Text(rawNote.courseTitle, style = MaterialTheme.typography.bodySmall, color = Color(0xFF334155))
                     }
                 }
+            }
 
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ── Original Lecture Note Content (Always readable without AI) ───
+            if (rawNote.rawContent.isNotBlank()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Description, contentDescription = null, tint = EduHubPrimary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Original Lecture Content", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = rawNote.rawContent,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // ── AI Study Guide Section (On-Demand) ───────────────────────────
+            if (isGenerating) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(color = EduHubPrimary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("EduHub AI is analyzing lecture materials...", fontWeight = FontWeight.SemiBold)
+                        Text("Extracting summary, takeaways & key terminology", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            } else if (aiNote == null && !isCheckingCache) {
+                // Not generated yet - Display prominent button to generate
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier.size(48.dp).clip(CircleShape).background(EduHubAccentOrange.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = EduHubAccentOrange, modifier = Modifier.size(26.dp))
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("AI Study Guide & Flashcards", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Generate comprehensive summaries, bullet-point takeaways, and key terminology using Gemini AI.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { loadOrGenerate(force = true) },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = EduHubAccentOrange),
+                            modifier = Modifier.fillMaxWidth().height(46.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Generate AI Study Guide", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+            } else if (aiNote != null) {
+                val note = aiNote!!
 
                 // Summary Section
                 if (note.summary.isNotBlank()) {
@@ -433,7 +545,14 @@ fun NoteDetailAiScreen(
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Summary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubAccentOrange)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("AI Summary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubAccentOrange)
+                                Text("AI Generated", style = MaterialTheme.typography.labelSmall, color = EduHubAccentOrange)
+                            }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(note.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         }
@@ -442,63 +561,66 @@ fun NoteDetailAiScreen(
                 }
 
                 // Key Takeaways Section
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Key Takeaways", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubPrimary)
-                        Spacer(modifier = Modifier.height(10.dp))
-                        note.keyTakeaways.forEach { point ->
-                            Row(modifier = Modifier.padding(vertical = 4.dp)) {
-                                Text("• ", fontWeight = FontWeight.Bold, color = EduHubPrimary)
-                                Text(point, style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Key Terminology Section
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Key Terminology", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubAccentGreen)
-                        Spacer(modifier = Modifier.height(10.dp))
-                        note.keyTerminology.forEach { (term, def) ->
-                            Row(modifier = Modifier.padding(vertical = 4.dp)) {
-                                Text("• ", fontWeight = FontWeight.Bold, color = EduHubAccentGreen)
-                                Column {
-                                    Text("$term:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-                                    Text(def, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (note.keyTakeaways.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Key Takeaways", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            note.keyTakeaways.forEach { point ->
+                                Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    Text("• ", fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                                    Text(point, style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(14.dp))
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = { onNavigateToQuiz(rawNote.id, rawNote.courseCode) },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary),
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
-                ) {
-                    Icon(Icons.Default.Quiz, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Generate Quiz from Notes", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                // Key Terminology Section
+                if (note.keyTerminology.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Key Terminology", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubAccentGreen)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            note.keyTerminology.forEach { (term, def) ->
+                                Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                                    Text("• ", fontWeight = FontWeight.Bold, color = EduHubAccentGreen)
+                                    Column {
+                                        Text("$term:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                        Text(def, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
                 }
-
-                Spacer(modifier = Modifier.height(24.dp))
             }
+
+            // ── Quiz Generation Button ───────────────────────────────────────
+            Button(
+                onClick = { onNavigateToQuiz(rawNote.id, rawNote.courseCode) },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            ) {
+                Icon(Icons.Default.Quiz, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Generate Quiz from Notes", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
         // ── Gemini AI & Python Backend Setup Dialog ───────────────────────
