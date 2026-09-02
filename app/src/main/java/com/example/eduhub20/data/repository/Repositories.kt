@@ -478,6 +478,53 @@ object AuthRepository {
         }
     }
 
+    suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val user = _currentUser.value ?: return@withContext Result.failure(Exception("User not logged in"))
+
+            // Validate new password
+            if (newPassword.length < 6) {
+                return@withContext Result.failure(Exception("Password must be at least 6 characters long"))
+            }
+
+            if (currentPassword == newPassword) {
+                return@withContext Result.failure(Exception("New password must be different from current password"))
+            }
+
+            if (currentPassword.isBlank()) {
+                return@withContext Result.failure(Exception("Please enter your current password"))
+            }
+
+            // ✅ Step 1: Verify current password
+            try {
+                SupabaseClientProvider.auth.signInWith(Email) {
+                    this.email = user.email
+                    this.password = currentPassword
+                }
+                Log.d("AuthRepository", "Current password verified")
+            } catch (e: Exception) {
+                Log.e("AuthRepository", "Current password verification failed: ${e.message}")
+                return@withContext Result.failure(Exception("Current password is incorrect. Please try again."))
+            }
+
+            // ✅ Step 2: Change to new password
+            try {
+                SupabaseClientProvider.auth.updateUser {
+                    this.password = newPassword
+                }
+                Log.d("AuthRepository", "Password changed successfully")
+            } catch (e: Exception) {
+                Log.e("AuthRepository", "Failed to update password: ${e.message}")
+                return@withContext Result.failure(Exception("Failed to update password: ${e.message}"))
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("AuthRepository", "Unexpected error: ${e.message}")
+            Result.failure(Exception("Failed to change password: ${e.message}"))
+        }
+    }
+
 
     fun signOut() {
         try {
