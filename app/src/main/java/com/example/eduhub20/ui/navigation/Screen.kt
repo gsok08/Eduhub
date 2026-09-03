@@ -33,6 +33,10 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
         fun createRoute(groupId: String): String = "chat_room/$groupId"
     }
 
+    object GroupInfo : Screen("group_info/{groupId}") {
+        fun createRoute(groupId: String): String = "group_info/$groupId"
+    }
+
     object LecturerDashboard : Screen("lecturer_dashboard")
 }
 

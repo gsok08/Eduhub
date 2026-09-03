@@ -44,10 +44,25 @@ class MainActivity : ComponentActivity() {
                 // Single Device Login Enforcement: Check if session is still valid
                 androidx.compose.runtime.LaunchedEffect(uiState.currentUser?.id) {
                     if (uiState.currentUser != null) {
+                        authViewModel.verifySingleDeviceSession()
                         while (true) {
-                            kotlinx.coroutines.delay(15_000L)
+                            kotlinx.coroutines.delay(3000L)
                             authViewModel.verifySingleDeviceSession()
                         }
+                    }
+                }
+
+                // Also verify immediately whenever app comes into foreground
+                val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                androidx.compose.runtime.DisposableEffect(lifecycleOwner, uiState.currentUser?.id) {
+                    val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                        if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && uiState.currentUser != null) {
+                            authViewModel.verifySingleDeviceSession()
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
                     }
                 }
 

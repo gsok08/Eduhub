@@ -270,7 +270,25 @@ fun EduHubNavHost(
                 ChatRoomScreen(
                     groupId = groupId,
                     groupName = groupName,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToGroupInfo = { gid ->
+                        navController.navigate(Screen.GroupInfo.createRoute(gid))
+                    }
+                )
+            }
+
+            // Group Info / Details Screen
+            composable(
+                route = Screen.GroupInfo.route,
+                arguments = listOf(navArgument("groupId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+                com.example.eduhub20.ui.group.GroupInfoScreen(
+                    groupId = groupId,
+                    onNavigateBack = { navController.popBackStack() },
+                    onGroupLeftOrKicked = {
+                        navController.popBackStack(Screen.Group.route, inclusive = false)
+                    }
                 )
             }
 

@@ -1,17 +1,12 @@
 package com.example.eduhub20.ui.group
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,8 +27,6 @@ import com.example.eduhub20.data.model.GroupMember
 import com.example.eduhub20.data.repository.AuthRepository
 import com.example.eduhub20.data.repository.StudyGroupRepository
 import com.example.eduhub20.ui.common.UserAvatar
-import com.example.eduhub20.ui.theme.EduHubAccentGreen
-import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -45,6 +38,7 @@ fun ChatRoomScreen(
     groupId: String,
     groupName: String,
     onNavigateBack: () -> Unit,
+    onNavigateToGroupInfo: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -67,8 +61,6 @@ fun ChatRoomScreen(
 
     var showMenu by remember { mutableStateOf(false) }
     var showClearHistoryDialog by remember { mutableStateOf(false) }
-    var showMembersDialog by remember { mutableStateOf(false) }
-    var memberToKick by remember { mutableStateOf<GroupMember?>(null) }
 
     val myMemberRole = remember(members.toList(), currentUser?.id) {
         val me = members.find { it.userId == currentUser?.id }
@@ -82,24 +74,28 @@ fun ChatRoomScreen(
     val isAdmin = myMemberRole.equals("ADMIN", ignoreCase = true)
     val canManage = isHost || isAdmin
 
-    // Fetch members initially
-    fun refreshMembers() {
-        scope.launch {
-            val list = StudyGroupRepository.fetchGroupMembers(groupId, groupHostName, hostUserId)
-            members.clear()
-            members.addAll(list)
-        }
-    }
-
+    // Fetch members initially to get the accurate member count
     LaunchedEffect(groupId) {
-        refreshMembers()
+        val list = StudyGroupRepository.fetchGroupMembers(groupId, groupHostName, hostUserId)
+        members.clear()
+        members.addAll(list)
     }
 
     // Real-time live polling from Supabase (every 2.5 seconds)
     LaunchedEffect(groupId) {
         while (isActive) {
+            val allGroups = StudyGroupRepository.fetchGroupsFromSupabase()
+            val groupStillExists = allGroups.any { it.id == groupId }
+            if (!groupStillExists) {
+                Toast.makeText(context, "This study group was deleted.", Toast.LENGTH_SHORT).show()
+                onNavigateBack()
+                break
+            }
+
             val remoteMessages = StudyGroupRepository.fetchChatMessages(groupId, currentUserName)
-            if (remoteMessages.size != messages.size || remoteMessages != messages.toList()) {
+            val currentIds = messages.map { it.id }
+            val remoteIds = remoteMessages.map { it.id }
+            if (currentIds != remoteIds) {
                 val oldSize = messages.size
                 messages.clear()
                 messages.addAll(remoteMessages)
@@ -128,15 +124,8 @@ fun ChatRoomScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { showMembersDialog = true }
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(groupName, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(Icons.Default.Info, contentDescription = "Group Info", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(groupName, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                         Text(
                             "${members.size.coerceAtLeast(1)} members · ${messages.size} msgs",
                             style = MaterialTheme.typography.labelSmall,
@@ -162,12 +151,11 @@ fun ChatRoomScreen(
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Group Members & Roles") },
-                                leadingIcon = { Icon(Icons.Default.Groups, contentDescription = null) },
+                                text = { Text("Group Details") },
+                                leadingIcon = { Icon(Icons.Default.Info, contentDescription = null) },
                                 onClick = {
                                     showMenu = false
-                                    refreshMembers()
-                                    showMembersDialog = true
+                                    onNavigateToGroupInfo(groupId)
                                 }
                             )
                             DropdownMenuItem(
@@ -246,8 +234,9 @@ fun ChatRoomScreen(
                         val text = inputText.trim()
                         if (text.isNotBlank()) {
                             val now = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+                            val msgId = java.util.UUID.randomUUID().toString()
                             val newMsg = ChatMessage(
-                                id = java.util.UUID.randomUUID().toString(),
+                                id = msgId,
                                 groupId = groupId,
                                 senderName = currentUserName,
                                 senderRole = currentUserRole,
@@ -261,7 +250,7 @@ fun ChatRoomScreen(
                             inputText = ""
 
                             scope.launch {
-                                StudyGroupRepository.sendMessage(groupId, text, currentUserName, currentUserRole)
+                                StudyGroupRepository.sendMessage(groupId, text, currentUserName, currentUserRole, customMsgId = msgId)
                                 if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
                             }
                         }
@@ -297,204 +286,6 @@ fun ChatRoomScreen(
             dismissButton = {
                 TextButton(onClick = { showClearHistoryDialog = false }) {
                     Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // ── Kick Member Confirmation Dialog ─────────────────────────────────────
-    memberToKick?.let { target ->
-        AlertDialog(
-            onDismissRequest = { memberToKick = null },
-            title = { Text("Kick Member", fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to remove \"${target.userName}\" from \"$groupName\"?") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val toKick = target
-                        memberToKick = null
-                        scope.launch {
-                            StudyGroupRepository.kickMember(groupId, toKick.userId)
-                            members.removeAll { it.userId == toKick.userId }
-                            Toast.makeText(context, "${toKick.userName} has been removed", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Kick Member")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { memberToKick = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // ── Group Members & Roles Modal Dialog ───────────────────────────────────
-    if (showMembersDialog) {
-        AlertDialog(
-            onDismissRequest = { showMembersDialog = false },
-            title = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Group Members (${members.size})", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    IconButton(onClick = { showMembersDialog = false }) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
-                    }
-                }
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
-                    // Invite link banner
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = EduHubPrimary.copy(alpha = 0.08f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Group Code", style = MaterialTheme.typography.labelSmall, color = EduHubPrimary)
-                                Text(groupId, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                            }
-                            IconButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Group Invite Link", "eduhub://group/join/$groupId")
-                                    clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Invite link copied to clipboard!", Toast.LENGTH_SHORT).show()
-                                }
-                            ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy Link", tint = EduHubPrimary)
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(bottom = 8.dp))
-
-                    LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f, fill = false)) {
-                        items(members) { member ->
-                            val isMemberHost = member.role.equals("HOST", ignoreCase = true)
-                            val isMemberAdmin = member.role.equals("ADMIN", ignoreCase = true)
-                            val isSelf = member.userId == currentUser?.id
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                UserAvatar(avatarUrl = member.userAvatarUrl, size = 42.dp)
-                                Spacer(modifier = Modifier.width(10.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = if (isSelf) "${member.userName} (You)" else member.userName,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-
-                                    // Role Badge
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(
-                                                when {
-                                                    isMemberHost -> EduHubAccentOrange.copy(alpha = 0.15f)
-                                                    isMemberAdmin -> EduHubPrimary.copy(alpha = 0.15f)
-                                                    else -> MaterialTheme.colorScheme.surfaceVariant
-                                                }
-                                            )
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = when {
-                                                isMemberHost -> "👑 Host"
-                                                isMemberAdmin -> "🛡️ Admin"
-                                                else -> "👤 Member"
-                                            },
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = when {
-                                                isMemberHost -> EduHubAccentOrange
-                                                isMemberAdmin -> EduHubPrimary
-                                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                            }
-                                        )
-                                    }
-                                }
-
-                                // Actions for Host & Admin
-                                if (!isSelf) {
-                                    Row {
-                                        // Only Host can appoint or remove Admins
-                                        if (isHost && !isMemberHost) {
-                                            IconButton(
-                                                onClick = {
-                                                    val newRole = if (isMemberAdmin) "MEMBER" else "ADMIN"
-                                                    scope.launch {
-                                                        StudyGroupRepository.setMemberRole(groupId, member.userId, newRole)
-                                                        val idx = members.indexOfFirst { it.userId == member.userId }
-                                                        if (idx != -1) {
-                                                            members[idx] = members[idx].copy(role = newRole)
-                                                        }
-                                                        Toast.makeText(context, "${member.userName} is now ${if (newRole == "ADMIN") "Admin" else "Member"}", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                }
-                                            ) {
-                                                Icon(
-                                                    imageVector = if (isMemberAdmin) Icons.Default.ShieldMoon else Icons.Default.Shield,
-                                                    contentDescription = if (isMemberAdmin) "Demote to Member" else "Promote to Admin",
-                                                    tint = if (isMemberAdmin) EduHubAccentOrange else EduHubPrimary,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                        }
-
-                                        // Host can kick anyone except themselves. Admin can kick regular members.
-                                        val canKick = (isHost && !isMemberHost) || (isAdmin && !isMemberHost && !isMemberAdmin)
-                                        if (canKick) {
-                                            IconButton(
-                                                onClick = { memberToKick = member }
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.PersonRemove,
-                                                    contentDescription = "Kick Member",
-                                                    tint = MaterialTheme.colorScheme.error,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { shareInvitationLink() },
-                    colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Invite Friends")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMembersDialog = false }) {
-                    Text("Close")
                 }
             }
         )

@@ -263,21 +263,22 @@ fun ProfileScreen(
                             )
                         }
                     } else {
-                        // Show avatar image or placeholder
+                        // Show avatar image or default avatar
                         if (currentUser?.avatarUrl != null && currentUser.avatarUrl.isNotBlank()) {
                             AsyncImage(
                                 model = currentUser.avatarUrl,
                                 contentDescription = "Profile Avatar",
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
+                                placeholder = painterResource(id = R.drawable.default_avatar),
+                                error = painterResource(id = R.drawable.default_avatar)
                             )
                         } else {
-                            // Centered default icon
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_account_circle),
-                                contentDescription = "Default Avatar",
-                                tint = EduHubPrimary.copy(alpha = 0.6f),
-                                modifier = Modifier.size(80.dp)
+                            androidx.compose.foundation.Image(
+                                painter = painterResource(id = R.drawable.default_avatar),
+                                contentDescription = "Default Profile Avatar",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
                             )
                         }
                     }

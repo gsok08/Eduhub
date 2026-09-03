@@ -158,6 +158,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val res = AuthRepository.signInAsLecturer(email, password)
                 res.fold(
                     onSuccess = { user ->
+                        prefs.edit().putString("saved_session_id", AuthRepository.currentSessionId).apply()
                         if (state.rememberMe) {
                             prefs.edit()
                                 .putBoolean("remember_me", true)
@@ -165,7 +166,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                 .putString("saved_user_email", user.email)
                                 .putString("saved_user_name", user.name)
                                 .putString("saved_user_role", user.role.name)
-                                .putString("saved_session_id", AuthRepository.currentSessionId)
                                 .putString("saved_user_avatar_url", user.avatarUrl)
                                 .putString("saved_user_campus", user.campus)
                                 .apply()
@@ -181,6 +181,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     val res = AuthRepository.signUpStudent(email, password)
                     res.fold(
                         onSuccess = { user ->
+                            prefs.edit().putString("saved_session_id", AuthRepository.currentSessionId).apply()
                             if (state.rememberMe) {
                                 prefs.edit()
                                     .putBoolean("remember_me", true)
@@ -188,7 +189,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                     .putString("saved_user_email", user.email)
                                     .putString("saved_user_name", user.name)
                                     .putString("saved_user_role", user.role.name)
-                                    .putString("saved_session_id", AuthRepository.currentSessionId)
                                     .putString("saved_user_avatar_url", user.avatarUrl)
                                     .putString("saved_user_campus", user.campus)
                                     .apply()
@@ -203,6 +203,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     val res = AuthRepository.signInAsStudent(email, password)
                     res.fold(
                         onSuccess = { user ->
+                            prefs.edit().putString("saved_session_id", AuthRepository.currentSessionId).apply()
                             if (state.rememberMe) {
                                 prefs.edit()
                                     .putBoolean("remember_me", true)
@@ -210,7 +211,6 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                     .putString("saved_user_email", user.email)
                                     .putString("saved_user_name", user.name)
                                     .putString("saved_user_role", user.role.name)
-                                    .putString("saved_session_id", AuthRepository.currentSessionId)
                                     .putString("saved_user_avatar_url", user.avatarUrl)
                                     .putString("saved_user_campus", user.campus)
                                     .apply()
