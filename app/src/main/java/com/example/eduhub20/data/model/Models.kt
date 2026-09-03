@@ -21,10 +21,14 @@ data class Course(
     val code: String,
     val title: String,
     val lecturerName: String,
-    val joinCode: String = "EDU353",
+    val joinCode: String = "",
     val iconCategory: String = "CODE",
     val examDaysLeft: Int = 12,
-    val progress: Float = 0.66f
+    val progress: Float = 0.66f,
+    val studentCount: Int = 0,
+    val lectureNoteCount: Int = 0,
+    val pastYearCount: Int = 0,
+
 )
 
 @Serializable

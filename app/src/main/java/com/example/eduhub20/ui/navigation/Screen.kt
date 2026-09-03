@@ -33,7 +33,71 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
         fun createRoute(groupId: String): String = "chat_room/$groupId"
     }
 
-    object LecturerDashboard : Screen("lecturer_dashboard")
+    object LecturerHome : Screen("lecturer_home")
+
+    object LecturerPapers : Screen(
+        route = "lecturer_papers",
+        title = "Papers"
+    )
+
+    object LecturerCourses : Screen(
+        route = "lecturer_courses",
+        title = "Courses"
+    )
+
+    object CreateCourse : Screen(
+        route = "create_course",
+        title = "Create Course"
+    )
+
+    object CourseMain : Screen(
+        route = "course_main/{courseId}/{mode}",
+        title = "Course"
+    ) {
+
+        fun createRoute(
+            courseId: String,
+            mode: String
+        ): String {
+            return "course_main/$courseId/$mode"
+        }
+    }
+    object Announcement : Screen(
+        route = "announcement/{courseId}",
+        title = "Announcement"
+    ) {
+        fun createRoute(courseId: String) =
+            "announcement/$courseId"
+    }
+    object Materials : Screen(
+        route = "materials/{courseId}",
+        title = "Materials"
+    ) {
+        fun createRoute(courseId: String) =
+            "materials/$courseId"
+    }
+    object Students : Screen(
+        route = "students/{courseId}",
+        title = "Students"
+    ) {
+        fun createRoute(courseId: String) =
+            "students/$courseId"
+    }
+    object UploadLectureNote : Screen(
+        route = "upload_lecture_note/{courseId}",
+        title = "Upload Lecture Note"
+    ){
+        fun createRoute(courseId: String) =
+            "upload_lecture_note/$courseId"
+    }
+
+    object PastYearPaperUpload : Screen(
+        route = "past_year_upload/{courseId}",
+        title = "Upload Past Year Paper"
+    ){
+        fun createRoute(courseId:String)=
+            "past_year_upload/$courseId"
+    }
 }
 
 val bottomNavScreens = listOf(

@@ -29,6 +29,7 @@ data class ProfileDto(
     val id: String,
     @SerialName("full_name")
     val fullName: String,
+    val email: String = "",
     val role: String = "STUDENT",
     @SerialName("updated_at")
     val updatedAt: String = "2026-08-29T00:00:00Z"
@@ -47,7 +48,10 @@ data class CourseDto(
     val iconCategory: String = "CODE",
     @SerialName("exam_days_left")
     val examDaysLeft: Int = 30,
-    val progress: Float = 0.0f
+    val progress: Float = 0.0f,
+    @SerialName("student_count")
+    val studentCount: Int = 0
+
 )
 
 @Serializable
@@ -62,6 +66,7 @@ data class CourseEnrollmentDto(
 data class EnrolledStudent(
     val userId: String,
     val fullName: String,
+    val email: String = "",
     val role: String = "STUDENT"
 )
 
@@ -239,7 +244,7 @@ object AuthRepository {
                 }
                 try {
                     SupabaseClientProvider.postgrest.from("profiles").upsert(
-                        ProfileDto(id = userId, fullName = resolvedName, role = "LECTURER")
+                        ProfileDto(id = userId, fullName = resolvedName,email = trimmedEmail, role = "LECTURER")
                     )
                 } catch (_: Exception) {}
             }
@@ -295,7 +300,7 @@ object AuthRepository {
                 }
                 try {
                     SupabaseClientProvider.postgrest.from("profiles").upsert(
-                        ProfileDto(id = userId, fullName = resolvedName, role = "STUDENT")
+                        ProfileDto(id = userId, fullName = resolvedName,email = trimmedEmail, role = "STUDENT")
                     )
                 } catch (_: Exception) {}
             }
@@ -331,7 +336,7 @@ object AuthRepository {
 
             try {
                 SupabaseClientProvider.postgrest.from("profiles").upsert(
-                    ProfileDto(id = userId, fullName = defaultName, role = "STUDENT")
+                    ProfileDto(id = userId, fullName = defaultName,email =trimmedEmail, role = "STUDENT")
                 )
             } catch (_: Exception) {}
 
@@ -367,7 +372,7 @@ object AuthRepository {
 
         try {
             SupabaseClientProvider.postgrest.from("profiles").upsert(
-                ProfileDto(id = user.id, fullName = trimmed, role = user.role.name)
+                ProfileDto(id = user.id, fullName = trimmed,email = user.email, role = user.role.name)
             )
         } catch (_: Exception) {}
 
@@ -430,9 +435,38 @@ object CourseRepository {
         if (user == null) return emptyList()
 
         return if (user.role == UserRole.LECTURER) {
-            // Lecturer sees courses taught by them or all portal courses
-            val myTaught = all.filter { it.lecturerName.equals(user.name, ignoreCase = true) || it.lecturerName.contains("Lecturer", true) }
-            if (myTaught.isNotEmpty()) myTaught else all
+
+            val lecturerCourses =
+                all.filter { course ->
+
+                    course.lecturerName.equals(
+                        user.name,
+                        ignoreCase = true
+                    )
+                }
+
+            lecturerCourses.map { course ->
+
+                course.copy(
+
+                    lectureNoteCount =
+                        NoteQuizRepository
+                            .getNotes()
+                            .count {
+                                it.courseCode ==
+                                        course.code
+                            },
+
+                    pastYearCount =
+                        PastYearRepository
+                            .getPapers()
+                            .count {
+                                it.courseCode ==
+                                        course.code
+                            }
+                )
+            }
+
         } else {
             // Student ONLY sees courses they have joined via code
             if (_enrolledCourseIds.isEmpty()) {
@@ -469,6 +503,80 @@ object CourseRepository {
     fun getCourseById(id: String): Course? =
         getCourses().find { it.id.equals(id, true) || it.code.equals(id, true) }
 
+    suspend fun getCourseStudentCount(courseId:String):Int {
+
+        return try {
+
+            val result =
+                SupabaseClientProvider.postgrest
+                    .from("course_enrollments")
+                    .select {
+                        filter {
+                            eq("course_id", courseId)
+                        }
+                    }
+                    .decodeList<CourseEnrollmentDto>()
+
+            result.size
+
+        } catch(e:Exception){
+
+            0
+        }
+    }
+
+    suspend fun getLectureNoteCount(
+        courseCode: String
+    ): Int {
+        return try {
+            val notes =
+                NoteQuizRepository
+                    .fetchNotesFromSupabase()
+            notes.count {
+                it.courseCode.equals(
+                    courseCode,
+                    ignoreCase = true
+                )
+            }
+        } catch (e: Exception) {
+            NoteQuizRepository
+                .getNotes()
+                .count {
+                    it.courseCode.equals(
+                        courseCode,
+                        ignoreCase = true
+                    )
+                }
+        }
+    }
+
+    suspend fun getPastYearCount(
+        courseCode: String
+    ): Int {
+        return try {
+            val papers =
+                PastYearRepository
+                    .fetchPapersFromSupabase()
+            papers.count {
+                it.courseCode.equals(
+                    courseCode,
+                    ignoreCase = true
+                )
+            }
+        } catch (e: Exception) {
+            PastYearRepository
+                .getPapers()
+                .count {
+                    it.courseCode.equals(
+                        courseCode,
+                        ignoreCase = true
+                    )
+                }
+        }
+    }
+
+
+
     suspend fun fetchCoursesFromSupabase(): List<Course> = withContext(Dispatchers.IO) {
         val currentUser = AuthRepository.currentUser.value
         if (currentUser != null) {
@@ -492,7 +600,9 @@ object CourseRepository {
                     joinCode = dto.joinCode,
                     iconCategory = dto.iconCategory,
                     examDaysLeft = dto.examDaysLeft,
-                    progress = dto.progress
+                    progress = dto.progress,
+                    studentCount = dto.studentCount,
+
                 )
             }
             if (mapped.isNotEmpty()) {
@@ -507,71 +617,272 @@ object CourseRepository {
         _courses.toList()
     }
 
-    suspend fun joinCourseWithCode(code: String, studentUser: EduHubUser?): Result<Course> = withContext(Dispatchers.IO) {
-        val trimmedCode = code.trim().uppercase()
-        val all = getCourses()
-        val found = all.find { it.joinCode.equals(trimmedCode, ignoreCase = true) }
+    suspend fun joinCourseWithCode(
+        code: String,
+        studentUser: EduHubUser?
+    ): Result<Course> =
+        withContext(Dispatchers.IO) {
 
-        if (found != null) {
-            _enrolledCourseIds.add(found.id)
-            _enrolledCourseIds.add(found.code)
-            _hiddenCourseIds.remove(found.id)
-            _hiddenCourseIds.remove(found.code)
+            val user =
+                studentUser
+                    ?: return@withContext Result.failure(
+                        Exception(
+                            "Please sign in before joining a course."
+                        )
+                    )
 
-            if (studentUser != null) {
-                EduHubLocalStorage.saveEnrolledCourseIds(studentUser.id, _enrolledCourseIds)
-                EduHubLocalStorage.saveHiddenCourseIds(studentUser.id, _hiddenCourseIds)
 
-                val studentList = _enrolledStudentsMap.getOrPut(found.id) { mutableListOf() }
-                if (!studentList.any { it.userId == studentUser.id }) {
-                    studentList.add(EnrolledStudent(studentUser.id, studentUser.name, "STUDENT"))
+            val trimmedCode =
+                code
+                    .trim()
+                    .uppercase()
+
+
+            if (trimmedCode.isBlank()) {
+
+                return@withContext Result.failure(
+                    Exception(
+                        "Please enter a join code."
+                    )
+                )
+            }
+
+
+            try {
+
+                // Get the newest course list
+                // directly from Supabase
+                val allCourses =
+                    fetchCoursesFromSupabase()
+
+
+                // Find course using join code
+                val found =
+                    allCourses.find { course ->
+
+                        course.joinCode.equals(
+                            trimmedCode,
+                            ignoreCase = true
+                        )
+                    }
+
+
+                // Invalid join code
+                if (found == null) {
+
+                    return@withContext Result.failure(
+                        Exception(
+                            "Invalid join code \"$trimmedCode\"."
+                        )
+                    )
                 }
 
-                try {
-                    SupabaseClientProvider.postgrest.from("course_enrollments").insert(
-                        CourseEnrollmentDto(userId = studentUser.id, courseId = found.id)
+
+                // Check whether student
+                // already joined this course
+                val existingEnrollment =
+                    SupabaseClientProvider
+                        .postgrest
+                        .from("course_enrollments")
+                        .select {
+
+                            filter {
+
+                                eq(
+                                    "course_id",
+                                    found.id
+                                )
+
+                                eq(
+                                    "user_id",
+                                    user.id
+                                )
+                            }
+                        }
+                        .decodeList<CourseEnrollmentDto>()
+
+
+                // Add enrollment only if
+                // student has not joined before
+                if (existingEnrollment.isEmpty()) {
+
+                    SupabaseClientProvider
+                        .postgrest
+                        .from("course_enrollments")
+                        .insert(
+
+                            CourseEnrollmentDto(
+                                userId = user.id,
+                                courseId = found.id
+                            )
+                        )
+                }
+
+
+                // Save joined course locally
+                _enrolledCourseIds.add(
+                    found.id
+                )
+
+                _enrolledCourseIds.add(
+                    found.code
+                )
+
+
+                // If course was previously hidden,
+                // make it visible again
+                _hiddenCourseIds.remove(
+                    found.id
+                )
+
+                _hiddenCourseIds.remove(
+                    found.code
+                )
+
+
+                EduHubLocalStorage
+                    .saveEnrolledCourseIds(
+                        user.id,
+                        _enrolledCourseIds
                     )
-                } catch (_: Exception) {}
-            }
-            Result.success(found)
-        } else {
-            Result.failure(Exception("Invalid join code \"$trimmedCode\". Please verify with your lecturer."))
-        }
-    }
 
-    suspend fun fetchEnrolledStudents(courseId: String): List<EnrolledStudent> = withContext(Dispatchers.IO) {
-        val students = _enrolledStudentsMap.getOrPut(courseId) { mutableListOf() }
 
-        try {
-            val enrollments = SupabaseClientProvider.postgrest.from("course_enrollments")
-                .select { filter { eq("course_id", courseId) } }
-                .decodeList<CourseEnrollmentDto>()
+                EduHubLocalStorage
+                    .saveHiddenCourseIds(
+                        user.id,
+                        _hiddenCourseIds
+                    )
 
-            val studentList = mutableListOf<EnrolledStudent>()
-            for (enroll in enrollments) {
-                var name = "Student (${enroll.userId.take(6)})"
-                try {
-                    val p = SupabaseClientProvider.postgrest.from("profiles")
-                        .select { filter { eq("id", enroll.userId) } }
-                        .decodeSingleOrNull<ProfileDto>()
-                    if (p != null && p.fullName.isNotBlank()) {
-                        name = p.fullName
+
+                // Add student to local
+                // lecturer roster
+                val studentList =
+                    _enrolledStudentsMap
+                        .getOrPut(found.id) {
+                            mutableListOf()
+                        }
+
+
+                if (
+                    !studentList.any {
+                        it.userId == user.id
                     }
-                } catch (_: Exception) {}
+                ) {
 
-                studentList.add(EnrolledStudent(enroll.userId, name, "STUDENT"))
+                    studentList.add(
+
+                        EnrolledStudent(
+                            userId = user.id,
+                            fullName = user.name,
+                            email = user.email,
+                            role = "STUDENT"
+                        )
+                    )
+                }
+
+
+                Result.success(
+                    found
+                )
+
+
+            } catch (e: Exception) {
+
+                Log.e(
+                    "EduHubSupabase",
+                    "Join course failed: ${e.message}"
+                )
+
+
+                Result.failure(
+                    Exception(
+                        e.message
+                            ?: "Unable to join course."
+                    )
+                )
             }
+        }
+    suspend fun fetchEnrolledStudents(
+        courseId: String
+    ): List<EnrolledStudent> =
+        withContext(Dispatchers.IO) {
+            val students =
+                _enrolledStudentsMap
+                    .getOrPut(courseId) {
+                        mutableListOf()
+                    }
+            try {
+                val enrollments =
+                    SupabaseClientProvider
+                        .postgrest
+                        .from("course_enrollments")
+                        .select {
+                            filter {
+                                eq(
+                                    "course_id",
+                                    courseId
+                                )
+                            }
+                        }
+                        .decodeList<CourseEnrollmentDto>()
+                val studentList =
+                    mutableListOf<EnrolledStudent>()
+                for(enroll in enrollments){
+                    var name =
+                        "Student"
+                    var email = ""
+                    try {
+                        val profile =
+                            SupabaseClientProvider
+                                .postgrest
+                                .from("profiles")
+                                .select {
+                                    filter {
+                                        eq(
+                                            "id",
+                                            enroll.userId
+                                        )
+                                    }
+                                }
+                                .decodeSingleOrNull<ProfileDto>()
+                        if(profile != null){
+                            name =
+                                profile.fullName
+                            email =
+                                profile.email
+                        }
+                    }catch(e:Exception){
+                        Log.e(
+                            "EduHub",
+                            "Profile error ${e.message}"
+                        )
 
-            if (studentList.isNotEmpty()) {
+                    }
+                    studentList.add(
+                        EnrolledStudent(
+                            userId =
+                                enroll.userId,
+                            fullName =
+                                name,
+                            email =
+                                email,
+                            role =
+                                "STUDENT"
+                        )
+                    )
+                }
                 students.clear()
+
                 students.addAll(studentList)
+            }catch(e:Exception){
+                Log.e(
+                    "EduHub",
+                    "Student fetch failed ${e.message}"
+                )
             }
-        } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to fetch enrolled students: ${e.message}")
+            students.toList()
         }
 
-        students.toList()
-    }
 
     suspend fun removeStudentFromCourse(courseId: String, studentUserId: String) = withContext(Dispatchers.IO) {
         _enrolledStudentsMap[courseId]?.removeAll { it.userId == studentUserId }
@@ -595,9 +906,32 @@ object CourseRepository {
         }
     }
 
+    private fun generateJoinCode(
+        courseCode: String
+    ): String {
+
+        val prefix =
+            courseCode
+                .replace(" ", "")
+                .uppercase()
+                .take(3)
+
+        val characters =
+            "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+        val randomPart =
+            (1..5)
+                .map {
+                    characters.random()
+                }
+                .joinToString("")
+
+        return "$prefix-$randomPart"
+    }
+
     suspend fun createCourse(code: String, title: String, lecturerName: String): Course = withContext(Dispatchers.IO) {
         val upper = code.trim().uppercase()
-        val joinCode = upper.replace(" ", "").take(3) + (100..999).random()
+        val joinCode =  generateJoinCode(upper)
         val courseId = UUID.randomUUID().toString()
         val iconCat = if (upper.contains("CS") || upper.contains("IT") || upper.startsWith("AM")) "CODE" else "ENG"
 
@@ -609,7 +943,9 @@ object CourseRepository {
             joinCode = joinCode,
             iconCategory = iconCat,
             examDaysLeft = 30,
-            progress = 0f
+            progress = 0f ,
+            studentCount = 0,
+
         )
         _courses.add(0, nc)
         EduHubLocalStorage.saveCourses(_courses)

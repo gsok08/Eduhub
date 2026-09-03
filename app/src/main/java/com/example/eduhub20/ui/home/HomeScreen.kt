@@ -68,6 +68,7 @@ fun HomeScreen(
     var showJoinDialog by remember { mutableStateOf(false) }
     var joinCode by remember { mutableStateOf("") }
     var joinError by remember { mutableStateOf<String?>(null) }
+    var joining by remember { mutableStateOf(false) }
 
     // Global search results
     val matchedCourses = if (searchQuery.isBlank()) emptyList()
@@ -372,8 +373,12 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = joinCode,
-                        onValueChange = { joinCode = it.uppercase(); joinError = null },
-                        label = { Text("Join Code (e.g. MAD353)") },
+                        onValueChange = { joinCode =
+                            it.uppercase()
+                                .trim()
+                            joinError = null },
+                        label = { Text("Join Code ") },
+                        placeholder = { Text("e.g. AMIK7P4W") },
                         singleLine = true,
                         isError = joinError != null,
                         modifier = Modifier.fillMaxWidth()
@@ -385,19 +390,54 @@ fun HomeScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    scope.launch {
-                        CourseRepository.joinCourseWithCode(joinCode, currentUser).fold(
-                            onSuccess = { c ->
+                Button(
+                    enabled =
+                        joinCode.isNotBlank() &&
+                                !joining,
+                    onClick = {
+                        scope.launch {
+                            joining = true
+                            joinError = null
+
+                            val result =
+                                CourseRepository
+                                    .joinCourseWithCode(
+                                        code = joinCode,
+                                        studentUser = currentUser
+                                    )
+                            if (result.isSuccess) {
+                                // Get latest courses from Supabase
+                                CourseRepository
+                                    .fetchCoursesFromSupabase()
+                                // Refresh student's My Courses
                                 refreshCourses()
                                 showJoinDialog = false
                                 joinCode = ""
                                 joinError = null
-                            },
-                            onFailure = { e -> joinError = e.message }
-                        )
+                            } else {
+                                joinError =
+                                    result
+                                        .exceptionOrNull()
+                                        ?.message
+                                        ?: "Unable to join course."
+                            }
+                            joining = false
+                        }
                     }
-                }) { Text("Join") }
+                ) {
+                    if (joining) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(
+                            modifier = Modifier.width(8.dp)
+                        )
+                        Text("Joining...")
+                    } else {
+                        Text("Join")
+                    }
+                }
             },
             dismissButton = { TextButton(onClick = { showJoinDialog = false; joinError = null }) { Text("Cancel") } }
         )
@@ -481,10 +521,6 @@ fun CourseCardItem(
                 Text("${course.code} ${course.title}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1E293B))
                 Spacer(modifier = Modifier.height(4.dp))
                 Text("Lecturer: ${course.lecturerName}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF475569))
-                Text(
-                    "Join Code: ${course.joinCode}", style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold, color = Color(0xFF2563EB)
-                )
                 Spacer(modifier = Modifier.height(6.dp))
                 LinearProgressIndicator(
                     progress = { course.progress },
