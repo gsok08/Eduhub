@@ -121,6 +121,27 @@ data class StickyNote(
     val colorHex: Long = 0xFFFEF08A
 )
 
+fun buildPdfAnnotationStorageKey(
+    ownerId: String,
+    pdfUrl: String,
+    courseCode: String,
+    documentTitle: String
+): String {
+
+    val baseKey =
+        if (pdfUrl.isNotBlank()) {
+            pdfUrl
+        } else {
+            "$courseCode-$documentTitle"
+        }
+
+    return if (ownerId.isNotBlank()) {
+        "user:$ownerId::$baseKey"
+    } else {
+        baseKey
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfAnnotationViewer(
@@ -129,13 +150,21 @@ fun PdfAnnotationViewer(
     contentPages: List<String>,
     pdfUrl: String = "",
     onDismiss: () -> Unit,
+    annotationOwnerId: String = "",
+    onAnnotationsChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val storageKey = if (pdfUrl.isNotBlank()) pdfUrl else "$courseCode-$documentTitle"
+    val storageKey =
+        buildPdfAnnotationStorageKey(
+            ownerId = annotationOwnerId,
+            pdfUrl = pdfUrl,
+            courseCode = courseCode,
+            documentTitle = documentTitle
+        )
 
     var currentPage by remember { mutableIntStateOf(0) }
     var totalPages by remember { mutableIntStateOf(1) }
@@ -177,6 +206,14 @@ fun PdfAnnotationViewer(
             storageKey,
             PdfAnnotationData(strokes = serializedStrokes, stickyNotes = serializedNotes)
         )
+        val hasAnnotations =
+            serializedStrokes.isNotEmpty() ||
+                    serializedNotes.isNotEmpty()
+
+        onAnnotationsChanged(
+            hasAnnotations
+        )
+
         saveStatusText = "Saved"
         hasUnsavedChanges = false
         if (showFeedback) {
