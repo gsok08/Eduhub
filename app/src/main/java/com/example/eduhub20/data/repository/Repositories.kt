@@ -795,6 +795,10 @@ object CourseRepository {
         _hiddenCourseIds.addAll(EduHubLocalStorage.loadHiddenCourseIds(user.id))
     }
 
+    fun getEnrolledCourses(): List<Course> {
+        return _courses.filter { it.id in _enrolledCourseIds }
+    }
+
     fun onUserSignOut() {
         _enrolledCourseIds.clear()
         _hiddenCourseIds.clear()
