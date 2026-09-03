@@ -1621,35 +1621,81 @@ object StudyGroupRepository {
 
     suspend fun joinGroup(groupId: String) = withContext(Dispatchers.IO) {
         val currentUser = AuthRepository.currentUser.value
-        val alreadyJoined = _joinedGroupIds.contains(groupId)
-        _joinedGroupIds.add(groupId)
-        if (currentUser != null) {
-            EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
-        }
 
+        // Find the group
         val i = _groups.indexOfFirst { it.id == groupId }
-        if (i != -1) {
-            val newCount = if (!alreadyJoined) (_groups[i].currentMembers + 1).coerceAtMost(_groups[i].maxMembers) else _groups[i].currentMembers
-            val updated = _groups[i].copy(isJoined = true, currentMembers = newCount)
-            _groups[i] = updated
-            EduHubLocalStorage.saveGroups(_groups.toList())
 
-            if (!alreadyJoined) {
-                try {
-                    SupabaseClientProvider.postgrest.from("study_groups").update(
-                        {
-                            set("current_members", updated.currentMembers)
-                        }
-                    ) {
-                        filter { eq("id", groupId) }
-                    }
-                    Log.d("EduHubSupabase", "Updated member count for group $groupId in Supabase")
-                } catch (e: Exception) {
-                    Log.e("EduHubSupabase", "Failed to update member count in Supabase: ${e.message}")
-                }
-            }
+        // Group does not exist
+        if (i == -1) {
+            return@withContext
         }
 
+        val group = _groups[i]
+
+        // User already joined this group
+        if (_joinedGroupIds.contains(groupId)) {
+            return@withContext
+        }
+
+        // Group is full
+        if (group.currentMembers >= group.maxMembers) {
+            Log.d(
+                "EduHubSupabase",
+                "Cannot join group: group is full"
+            )
+            return@withContext
+        }
+
+        // Add group to user's joined groups
+        _joinedGroupIds.add(groupId)
+
+        if (currentUser != null) {
+            EduHubLocalStorage.saveJoinedGroupIds(
+                currentUser.id,
+                _joinedGroupIds
+            )
+        }
+
+        // Increase member count
+        val newCount = (group.currentMembers + 1)
+            .coerceAtMost(group.maxMembers)
+
+        val updated = group.copy(
+            isJoined = true,
+            currentMembers = newCount
+        )
+
+        _groups[i] = updated
+
+        EduHubLocalStorage.saveGroups(_groups.toList())
+
+        // Update member count in Supabase
+        try {
+            SupabaseClientProvider.postgrest
+                .from("study_groups")
+                .update(
+                    {
+                        set("current_members", newCount)
+                    }
+                ) {
+                    filter {
+                        eq("id", groupId)
+                    }
+                }
+
+            Log.d(
+                "EduHubSupabase",
+                "Updated member count for group $groupId"
+            )
+
+        } catch (e: Exception) {
+            Log.e(
+                "EduHubSupabase",
+                "Failed to update member count: ${e.message}"
+            )
+        }
+
+        // Add user to study_group_members
         if (currentUser != null) {
             try {
                 SupabaseClientProvider.postgrest
@@ -1660,22 +1706,59 @@ object StudyGroupRepository {
                             userId = currentUser.id
                         )
                     )
-            } catch (_: Exception) {}
 
-            try {
-                SupabaseClientProvider.postgrest.from("group_members").upsert(
-                    GroupMemberDto(
-                        id = "${groupId}_${currentUser.id}",
-                        groupId = groupId,
-                        userId = currentUser.id,
-                        userName = currentUser.name,
-                        avatarUrl = currentUser.avatarUrl,
-                        role = "MEMBER"
-                    )
+            } catch (e: Exception) {
+                Log.e(
+                    "EduHubSupabase",
+                    "Failed to add study group member: ${e.message}"
                 )
-            } catch (_: Exception) {}
+            }
+
+            // Add user to group_members as MEMBER
+            try {
+                SupabaseClientProvider.postgrest
+                    .from("group_members")
+                    .upsert(
+                        GroupMemberDto(
+                            id = "${groupId}_${currentUser.id}",
+                            groupId = groupId,
+                            userId = currentUser.id,
+                            userName = currentUser.name,
+                            avatarUrl = currentUser.avatarUrl,
+                            role = "MEMBER"
+                        )
+                    )
+
+            } catch (e: Exception) {
+                Log.e(
+                    "EduHubSupabase",
+                    "Failed to add group member: ${e.message}"
+                )
+            }
         }
     }
+
+    suspend fun getGroupMembers(groupId: String): List<GroupMember> =
+        withContext(Dispatchers.IO) {
+            try {
+                SupabaseClientProvider.postgrest
+                    .from("group_members")
+                    .select {
+                        filter {
+                            eq("group_id", groupId)
+                        }
+                    }
+                    .decodeList<GroupMember>()
+
+            } catch (e: Exception) {
+                Log.e(
+                    "EduHubSupabase",
+                    "Failed to fetch group members: ${e.message}"
+                )
+
+                emptyList()
+            }
+        }
 
     suspend fun createGroup(name: String, details: String, course: Course? = null, hostUser: EduHubUser? = null): StudyGroup = withContext(Dispatchers.IO) {
         val groupId = UUID.randomUUID().toString()
@@ -2044,6 +2127,21 @@ object StudyGroupRepository {
                     eq("group_id", groupId)
                     eq("user_id", targetUserId)
                 }
+            }
+            try {
+                SupabaseClientProvider.postgrest
+                    .from("study_group_members")
+                    .delete {
+                        filter {
+                            eq("group_id", groupId)
+                            eq("user_id", targetUserId)
+                        }
+                    }
+            } catch (e: Exception) {
+                Log.e(
+                    "EduHubSupabase",
+                    "Failed to delete from study_group_members: ${e.message}"
+                )
             }
         } catch (e: Exception) {
             Log.e("EduHubSupabase", "Failed to delete from group_members: ${e.message}")
