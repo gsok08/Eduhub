@@ -47,7 +47,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,6 +78,7 @@ fun LoginScreen(
 ) {
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+    var isRecoveryPasswordVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { msg ->
@@ -419,13 +423,14 @@ fun LoginScreen(
                                 text = "Enter your registered email address to receive a 6-digit verification code directly in your inbox:",
                                 style = MaterialTheme.typography.bodySmall
                             )
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
                             OutlinedTextField(
                                 value = uiState.forgotPasswordEmail,
                                 onValueChange = { viewModel.onForgotPasswordEmailChanged(it) },
                                 label = { Text("Email Address") },
-                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                placeholder = { Text("e.g. name@example.com") },
                                 singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -434,7 +439,7 @@ fun LoginScreen(
                                 text = "We sent a 6-digit recovery code to ${uiState.forgotPasswordEmail}. Enter the code and your new password below:",
                                 style = MaterialTheme.typography.bodySmall
                             )
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
 
                             OutlinedTextField(
                                 value = uiState.forgotPasswordOtp,
@@ -442,19 +447,31 @@ fun LoginScreen(
                                 label = { Text("6-Digit OTP Code") },
                                 placeholder = { Text("e.g. 123456") },
                                 singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                                 modifier = Modifier.fillMaxWidth()
                             )
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             OutlinedTextField(
                                 value = uiState.forgotPasswordNewPassword,
                                 onValueChange = { viewModel.onForgotPasswordNewPasswordChanged(it) },
-                                label = { Text("New Password (min 6 chars)") },
-                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                                visualTransformation = PasswordVisualTransformation(),
+                                label = { Text("New Password") },
+                                placeholder = { Text("At least 6 characters") },
+                                trailingIcon = {
+                                    IconButton(onClick = { isRecoveryPasswordVisible = !isRecoveryPasswordVisible }) {
+                                        Icon(
+                                            painter = painterResource(
+                                                id = if (isRecoveryPasswordVisible) R.drawable.ic_visibility_off else R.drawable.ic_visibility
+                                            ),
+                                            contentDescription = if (isRecoveryPasswordVisible) "Hide password" else "Show password"
+                                        )
+                                    }
+                                },
+                                visualTransformation = if (isRecoveryPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                 singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                                 modifier = Modifier.fillMaxWidth()
                             )
