@@ -935,8 +935,8 @@ fun GroupCardItem(
                         onClick = onChatClick,
                         colors =
                             ButtonDefaults.buttonColors(
-                                containerColor =
-                                    Color(0xFF1E293B)
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
                             ),
                         shape =
                             RoundedCornerShape(8.dp),
@@ -957,8 +957,8 @@ fun GroupCardItem(
                         onClick = onJoinClick,
                         colors =
                             ButtonDefaults.buttonColors(
-                                containerColor =
-                                    Color(0xFF1E293B)
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
                             ),
                         shape =
                             RoundedCornerShape(8.dp),
