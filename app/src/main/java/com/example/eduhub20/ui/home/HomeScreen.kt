@@ -32,6 +32,7 @@ import com.example.eduhub20.ui.theme.CardGreen
 import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,11 +56,14 @@ fun HomeScreen(
         courses.addAll(CourseRepository.getCoursesForUser(currentUser))
     }
 
-    // Fetch live courses from Supabase and refresh user's courses
+    // Live Periodic Auto-Refresh (every 15s) from Supabase
     LaunchedEffect(currentUser?.id) {
-        CourseRepository.fetchCoursesFromSupabase()
-        refreshCourses()
-        NoteQuizRepository.fetchNotesFromSupabase()
+        while (true) {
+            CourseRepository.fetchCoursesFromSupabase()
+            refreshCourses()
+            NoteQuizRepository.fetchNotesFromSupabase()
+            delay(15_000L)
+        }
     }
 
     // Global search
@@ -119,12 +123,10 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.clickable { onNavigateToProfile() }
                         ) {
-                            Box(
-                                modifier = Modifier.size(44.dp).clip(CircleShape).background(EduHubPrimary.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = EduHubPrimary, modifier = Modifier.size(34.dp))
-                            }
+                            com.example.eduhub20.ui.common.UserAvatar(
+                                avatarUrl = currentUser?.avatarUrl,
+                                size = 44.dp
+                            )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("Welcome back!", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

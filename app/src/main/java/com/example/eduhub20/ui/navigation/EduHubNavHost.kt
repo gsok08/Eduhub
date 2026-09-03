@@ -192,6 +192,7 @@ fun EduHubNavHost(
             // Tab 3: Note / Quiz
             composable(Screen.NoteQuiz.route) {
                 NoteQuizScreen(
+                    currentUser = currentUser,
                     onNavigateToNoteDetail = { noteId ->
                         navController.navigate(Screen.NoteDetailAi.createRoute(noteId))
                     },
@@ -211,6 +212,9 @@ fun EduHubNavHost(
                 StudyGroupScreen(
                     onNavigateToChat = { groupId ->
                         navController.navigate(Screen.ChatRoom.createRoute(groupId))
+                    },
+                    onNavigateToPomodoro = { roomId, roomName ->
+                        navController.navigate(Screen.Pomodoro.createRoute(roomId, roomName))
                     }
                 )
             }
@@ -339,15 +343,80 @@ fun EduHubNavHost(
             // Chat Room Screen
             composable(
                 route = Screen.ChatRoom.route,
-                arguments = listOf(navArgument("groupId") { type = NavType.StringType })
+                arguments = listOf(navArgument("groupId") { type = NavType.StringType }),
+                deepLinks = listOf(
+                    androidx.navigation.navDeepLink { uriPattern = "eduhub://group/join/{groupId}" }
+                )
             ) { backStackEntry ->
                 val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
                 val group = StudyGroupRepository.getGroups().find { it.id == groupId }
                 val groupName = group?.name ?: "Study Group"
+                androidx.compose.runtime.LaunchedEffect(groupId) {
+                    if (group == null || !group.isJoined) {
+                        StudyGroupRepository.joinGroup(groupId)
+                    }
+                }
                 ChatRoomScreen(
                     groupId = groupId,
                     groupName = groupName,
-                    onNavigateBack = { navController.popBackStack() }
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToGroupInfo = { gid ->
+                        navController.navigate(Screen.GroupInfo.createRoute(gid))
+                    }
+                )
+            }
+
+            // Pomodoro Focus Room Screen
+            composable(
+                route = Screen.Pomodoro.route,
+                arguments = listOf(
+                    navArgument("roomId") {
+                        type = NavType.StringType
+                        defaultValue = "general"
+                    },
+                    navArgument("roomName") {
+                        type = NavType.StringType
+                        defaultValue = "Focus Room"
+                    }
+                ),
+                deepLinks = listOf(
+                    androidx.navigation.navDeepLink { uriPattern = "eduhub://pomodoro/join/{roomId}" }
+                )
+            ) { backStackEntry ->
+                val roomId = backStackEntry.arguments?.getString("roomId") ?: "general"
+                val rawRoomName = backStackEntry.arguments?.getString("roomName") ?: "Focus Room"
+                val roomName = try {
+                    java.net.URLDecoder.decode(rawRoomName, "UTF-8")
+                } catch (_: Exception) { rawRoomName }
+
+                com.example.eduhub20.ui.pomodoro.PomodoroScreen(
+                    roomId = roomId,
+                    roomName = roomName,
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToPayment = { navController.navigate(Screen.TngPayment.route) }
+                )
+            }
+
+            // Touch 'n Go AI Receipt Verification Screen
+            composable(Screen.TngPayment.route) {
+                com.example.eduhub20.ui.pomodoro.TngPaymentScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onPaymentSuccess = { navController.popBackStack() }
+                )
+            }
+
+            // Group Info / Details Screen
+            composable(
+                route = Screen.GroupInfo.route,
+                arguments = listOf(navArgument("groupId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+                com.example.eduhub20.ui.group.GroupInfoScreen(
+                    groupId = groupId,
+                    onNavigateBack = { navController.popBackStack() },
+                    onGroupLeftOrKicked = {
+                        navController.popBackStack(Screen.Group.route, inclusive = false)
+                    }
                 )
             }
 

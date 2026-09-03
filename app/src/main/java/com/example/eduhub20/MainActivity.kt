@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.example.eduhub20.ui.auth.AuthViewModel
 import com.example.eduhub20.ui.auth.LoginScreen
@@ -33,13 +32,39 @@ class MainActivity : ComponentActivity() {
 
         com.example.eduhub20.data.local.EduHubLocalStorage.init(applicationContext)
         com.example.eduhub20.data.ai.GeminiConfig.init(applicationContext)
+        com.example.eduhub20.ui.theme.ThemeState.init(applicationContext)
 
         val networkObserver = NetworkConnectivityObserver(applicationContext)
 
         setContent {
-            Eduhub20Theme {
+            Eduhub20Theme(darkTheme = false){
                 val uiState by authViewModel.uiState.collectAsState()
                 val isOnline by networkObserver.isOnline.collectAsState(initial = true)
+
+                // Single Device Login Enforcement: Check if session is still valid
+                androidx.compose.runtime.LaunchedEffect(uiState.currentUser?.id) {
+                    if (uiState.currentUser != null) {
+                        authViewModel.verifySingleDeviceSession()
+                        while (true) {
+                            kotlinx.coroutines.delay(3000L)
+                            authViewModel.verifySingleDeviceSession()
+                        }
+                    }
+                }
+
+                // Also verify immediately whenever app comes into foreground
+                val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                androidx.compose.runtime.DisposableEffect(lifecycleOwner, uiState.currentUser?.id) {
+                    val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                        if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME && uiState.currentUser != null) {
+                            authViewModel.verifySingleDeviceSession()
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
 
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Column(modifier = Modifier.fillMaxSize()) {

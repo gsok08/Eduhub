@@ -28,16 +28,20 @@ object EduHubAiGenerator {
     private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
-     * Tests connection to the Python Flask Backend server (e.g. http://192.168.1.100:5000).
+     * Tests connection to the Python Flask Backend server (e.g. http://192.168.1.100:5000 or http://10.0.2.2:5000).
      */
     suspend fun testBackendConnection(serverUrl: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
-        val cleanUrl = serverUrl.trim().removeSuffix("/")
+        val trimmed = serverUrl.trim().removeSuffix("/")
+        if (trimmed.isBlank()) {
+            return@withContext Pair(false, "Please enter a valid Backend URL.")
+        }
+        val cleanUrl = if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) "http://$trimmed" else trimmed
         try {
             val url = URL("$cleanUrl/api/health")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
-            conn.connectTimeout = 4000
-            conn.readTimeout = 4000
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
             val code = conn.responseCode
             if (code == HttpURLConnection.HTTP_OK) {
                 val resp = conn.inputStream.bufferedReader().readText()
@@ -48,7 +52,8 @@ object EduHubAiGenerator {
                 Pair(false, "Server returned status code $code")
             }
         } catch (e: Exception) {
-            Pair(false, "Cannot reach server: ${e.message ?: "Connection timed out"}")
+            val reason = e.localizedMessage ?: "Connection timed out"
+            Pair(false, "Cannot reach server: $reason\n(Make sure 'python app.py' is running on your laptop)")
         }
     }
 

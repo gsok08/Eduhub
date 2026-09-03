@@ -1,6 +1,5 @@
 package com.example.eduhub20.ui.auth
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,9 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,13 +47,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import com.example.eduhub20.data.model.UserRole
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import com.example.eduhub20.R
 
 @Composable
 fun LoginScreen(
@@ -77,6 +78,7 @@ fun LoginScreen(
 ) {
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+    var isRecoveryPasswordVisible by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.errorMessage) {
         uiState.errorMessage?.let { msg ->
@@ -125,7 +127,7 @@ fun LoginScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.School,
+                            painter = painterResource(id = R.drawable.ic_school),
                             contentDescription = "EduHub Logo",
                             tint = EduHubPrimary,
                             modifier = Modifier.size(40.dp)
@@ -142,7 +144,7 @@ fun LoginScreen(
                     )
 
                     Text(
-                        text = "AMIT 3353 Mobile Application Development",
+                        text = "Welcome to EduHub",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -234,7 +236,7 @@ fun LoginScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Info,
+                                            painter = painterResource(id = R.drawable.ic_info),
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.error,
                                             modifier = Modifier.size(20.dp)
@@ -256,7 +258,13 @@ fun LoginScreen(
                                 value = uiState.email,
                                 onValueChange = { viewModel.onEmailChanged(it) },
                                 label = { Text("Email Address") },
-                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_email),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                              },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                                 keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
@@ -271,11 +279,21 @@ fun LoginScreen(
                                 value = uiState.password,
                                 onValueChange = { viewModel.onPasswordChanged(it) },
                                 label = { Text("Password") },
-                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_lock),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                              },
                                 trailingIcon = {
                                     IconButton(onClick = { viewModel.togglePasswordVisibility() }) {
                                         Icon(
-                                            imageVector = if (uiState.isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            painter = if (uiState.isPasswordVisible) {
+                                                painterResource(id = R.drawable.ic_visibility)
+                                            } else {
+                                                painterResource(id = R.drawable.ic_visibility_off)
+                                            },
                                             contentDescription = null
                                         )
                                     }
@@ -357,27 +375,139 @@ fun LoginScreen(
             }
         }
 
-        // Forgot Password Dialog
+        // ── In-App 2-Step OTP Forgot Password Dialog ───────────────────────
         if (uiState.showForgotPasswordDialog) {
             AlertDialog(
                 onDismissRequest = { viewModel.showForgotPasswordDialog(false) },
-                title = { Text("Reset Password") },
+                title = {
+                    Text(
+                        text = if (!uiState.isOtpSent) "Reset Password" else "Enter Recovery Code",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 text = {
-                    Column {
-                        Text("Enter your email address to receive password recovery instructions:")
-                        Spacer(modifier = Modifier.height(12.dp))
-                        OutlinedTextField(
-                            value = uiState.forgotPasswordEmail,
-                            onValueChange = { viewModel.onForgotPasswordEmailChanged(it) },
-                            label = { Text("Email Address") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (uiState.errorMessage != null) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = uiState.errorMessage,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+
+                        if (!uiState.isOtpSent) {
+                            Text(
+                                text = "Enter your registered email address to receive a 6-digit verification code directly in your inbox:",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                            OutlinedTextField(
+                                value = uiState.forgotPasswordEmail,
+                                onValueChange = { viewModel.onForgotPasswordEmailChanged(it) },
+                                label = { Text("Email Address") },
+                                placeholder = { Text("e.g. name@example.com") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Done),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Text(
+                                text = "We sent a 6-digit recovery code to ${uiState.forgotPasswordEmail}. Enter the code and your new password below:",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            OutlinedTextField(
+                                value = uiState.forgotPasswordOtp,
+                                onValueChange = { if (it.length <= 8) viewModel.onForgotPasswordOtpChanged(it) },
+                                label = { Text("6-Digit OTP Code") },
+                                placeholder = { Text("e.g. 123456") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            OutlinedTextField(
+                                value = uiState.forgotPasswordNewPassword,
+                                onValueChange = { viewModel.onForgotPasswordNewPasswordChanged(it) },
+                                label = { Text("New Password") },
+                                placeholder = { Text("At least 6 characters") },
+                                trailingIcon = {
+                                    IconButton(onClick = { isRecoveryPasswordVisible = !isRecoveryPasswordVisible }) {
+                                        Icon(
+                                            painter = painterResource(
+                                                id = if (isRecoveryPasswordVisible) R.drawable.ic_visibility_off else R.drawable.ic_visibility
+                                            ),
+                                            contentDescription = if (isRecoveryPasswordVisible) "Hide password" else "Show password"
+                                        )
+                                    }
+                                },
+                                visualTransformation = if (isRecoveryPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(
+                                    onClick = { viewModel.sendPasswordResetOtp() },
+                                    enabled = !uiState.isResettingPassword
+                                ) {
+                                    Text("Resend Code", fontSize = 12.sp, color = EduHubPrimary)
+                                }
+                            }
+                        }
                     }
                 },
                 confirmButton = {
-                    Button(onClick = { viewModel.sendPasswordReset() }) {
-                        Text("Send Reset Link")
+                    Button(
+                        onClick = {
+                            if (!uiState.isOtpSent) {
+                                viewModel.sendPasswordResetOtp()
+                            } else {
+                                viewModel.verifyOtpAndSetNewPassword()
+                            }
+                        },
+                        enabled = !uiState.isResettingPassword,
+                        colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary)
+                    ) {
+                        if (uiState.isResettingPassword) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text(if (!uiState.isOtpSent) "Send Code" else "Update Password")
                     }
                 },
                 dismissButton = {

@@ -3,14 +3,21 @@
 -- Run this entire script in your Supabase Dashboard -> SQL Editor -> Run (▶️)
 -- =============================================================================
 
--- 1. Profiles Table (Tracks User Display Name, Email, and Role)
+-- 1. Profiles Table (Tracks User Display Name, Email, Role, Avatar, Campus, and Single-Device Session)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
     email TEXT,
     role TEXT DEFAULT 'STUDENT', -- 'STUDENT' or 'LECTURER'
+    active_session_id TEXT DEFAULT '',
+    avatar_url TEXT,
+    campus TEXT,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS active_session_id TEXT DEFAULT '';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS campus TEXT;
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on profiles" ON public.profiles;
@@ -38,9 +45,14 @@ CREATE TABLE IF NOT EXISTS public.course_enrollments (
     id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     user_id TEXT NOT NULL,
     course_id TEXT NOT NULL,
+    student_name TEXT DEFAULT '',
+    student_email TEXT DEFAULT '',
     enrolled_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (user_id, course_id)
 );
+
+ALTER TABLE public.course_enrollments ADD COLUMN IF NOT EXISTS student_name TEXT DEFAULT '';
+ALTER TABLE public.course_enrollments ADD COLUMN IF NOT EXISTS student_email TEXT DEFAULT '';
 
 ALTER TABLE public.course_enrollments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on course_enrollments" ON public.course_enrollments;
@@ -103,8 +115,11 @@ CREATE TABLE IF NOT EXISTS public.study_groups (
     current_members INT DEFAULT 1,
     max_members INT DEFAULT 6,
     category TEXT DEFAULT 'GROUP',
+    host_user_id TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.study_groups ADD COLUMN IF NOT EXISTS host_user_id TEXT DEFAULT '';
 
 ALTER TABLE public.study_groups ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on study_groups" ON public.study_groups;
@@ -119,20 +134,48 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
     message TEXT NOT NULL,
     timestamp TEXT NOT NULL,
     is_from_me BOOLEAN DEFAULT false,
+    sender_avatar_url TEXT DEFAULT '',
+    sender_id TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS sender_avatar_url TEXT DEFAULT '';
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS sender_id TEXT DEFAULT '';
 
 ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on chat_messages" ON public.chat_messages;
 CREATE POLICY "Public full access on chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
 
--- 9. Supabase Storage Bucket for Lecture PDFs
+-- 9. Group Members Table (Tracks Host, Admin, and Member roles)
+CREATE TABLE IF NOT EXISTS public.group_members (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    avatar_url TEXT DEFAULT '',
+    role TEXT DEFAULT 'MEMBER', -- 'HOST', 'ADMIN', 'MEMBER'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(group_id, user_id)
+);
+
+ALTER TABLE public.group_members ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on group_members" ON public.group_members;
+CREATE POLICY "Public full access on group_members" ON public.group_members FOR ALL USING (true) WITH CHECK (true);
+
+-- 10. Supabase Storage Buckets (Lecture PDFs & User Avatars)
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('lecture-notes', 'lecture-notes', true)
 ON CONFLICT (id) DO NOTHING;
 
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
 DROP POLICY IF EXISTS "Public Access to lecture-notes bucket" ON storage.objects;
 CREATE POLICY "Public Access to lecture-notes bucket" ON storage.objects FOR ALL USING (bucket_id = 'lecture-notes') WITH CHECK (bucket_id = 'lecture-notes');
+
+DROP POLICY IF EXISTS "Public Access to avatars bucket" ON storage.objects;
+CREATE POLICY "Public Access to avatars bucket" ON storage.objects FOR ALL USING (bucket_id = 'avatars') WITH CHECK (bucket_id = 'avatars');
 
 -- 10. Grant full API permissions to public schema tables
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
@@ -142,6 +185,7 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 
 -- 11. Enable Realtime Replication
 ALTER PUBLICATION supabase_realtime ADD TABLE public.study_groups;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.group_members;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.courses;

@@ -241,6 +241,19 @@ object EduHubLocalStorage {
         }
     }
 
+    fun clearAllChatMessages() {
+        try {
+            val allKeys = prefs?.all?.keys ?: return
+            val chatKeys = allKeys.filter { it.startsWith(PREFIX_CHAT_MESSAGES) }
+            prefs?.edit {
+                for (k in chatKeys) {
+                    remove(k)
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     // ── PDF Slide Annotations Persistence ────────────────────────────────
     fun savePdfAnnotations(documentKey: String, data: PdfAnnotationData) {
         val safeKey = PREFIX_PDF_ANNOTATIONS + documentKey.hashCode().toString()
@@ -279,5 +292,16 @@ object EduHubLocalStorage {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    // ── Student Name Cache ───────────────────────────────────────────────
+    fun saveStudentName(userId: String, name: String) {
+        if (userId.isNotBlank() && name.isNotBlank()) {
+            prefs?.edit { putString("student_name_" + userId.trim(), name.trim()) }
+        }
+    }
+
+    fun loadStudentName(userId: String): String? {
+        return prefs?.getString("student_name_" + userId.trim(), null)
     }
 }

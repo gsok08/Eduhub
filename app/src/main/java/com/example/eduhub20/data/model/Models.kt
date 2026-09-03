@@ -12,7 +12,9 @@ data class EduHubUser(
     val email: String,
     val name: String,
     val role: UserRole,
-    val joinedDate: String = "2026-08-20"
+    val joinedDate: String = "2026-08-20",
+    val avatarUrl: String? = null,
+    val campus: String? = null
 )
 
 @Serializable
@@ -108,13 +110,19 @@ data class StudyGroup(
     val maxMembers: Int,
     val isJoined: Boolean = false,
     val category: String = "GROUP",
-    val hostUserId: String = ""
+    val hostUserId: String = "",
+    val courseId: String = "",
+    val courseCode: String = "",
+    val courseTitle: String = "",
+    val status: String = "INACTIVE"
 )
 
 @Serializable
-data class StudyRoomMember(
-    val name: String,
-    val currentStatus: String
+data class StudyGroupMember(
+    val id: String = "",
+    val groupId: String,
+    val userId: String,
+    val joinedAt: String = ""
 )
 
 @Serializable
@@ -126,7 +134,19 @@ data class ChatMessage(
     val message: String,
     val timestamp: String,
     val isFromMe: Boolean,
-    val attachmentUrl: String? = null
+    val attachmentUrl: String? = null,
+    val senderAvatarUrl: String? = null,
+    val senderId: String = ""
+)
+
+@Serializable
+data class GroupMember(
+    val id: String = "",
+    val groupId: String,
+    val userId: String,
+    val userName: String,
+    val userAvatarUrl: String? = null,
+    val role: String = "MEMBER" // "HOST", "ADMIN", "MEMBER"
 )
 
 @Serializable
@@ -156,3 +176,34 @@ data class PastYearPaper(
     val totalMarks: Int = 100,
     val pdfUrl: String = ""
 )
+
+// ✅ Add this - Campus data class
+@Serializable
+data class Campus(
+    val id: String,
+    val name: String,
+    val location: String,
+    val iconRes: Int = 0  // Optional: for different campus icons
+)
+
+// ✅ Add this - Campus list
+object CampusData {
+    val campusList = listOf(
+        Campus("campus_1", "Kuala Lumpur", "Kuala Lumpur"),
+        Campus("campus_2", "Selangor", "Petaling Jaya"),
+        Campus("campus_3", "Penang", "George Town"),
+        Campus("campus_4", "Johor", "Johor Bahru"),
+        Campus("campus_5", "Sarawak", "Kuching"),
+        Campus("campus_6", "Sabah", "Kota Kinabalu")
+    )
+
+    // Helper function to get campus by ID
+    fun getCampusById(id: String): Campus? {
+        return campusList.find { it.id == id }
+    }
+
+    // Helper function to get campus by name
+    fun getCampusByName(name: String): Campus? {
+        return campusList.find { it.name.equals(name, ignoreCase = true) }
+    }
+}
