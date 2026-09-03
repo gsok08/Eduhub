@@ -182,6 +182,8 @@ object AuthRepository {
         return when {
             lower.contains("over_email_send_rate_limit") || lower.contains("email rate limit") || lower.contains("security purposes") || lower.contains("once every") ->
                 "Too many email requests. For security purposes, please wait 60 seconds before trying again."
+            lower.contains("unexpected_failure") || lower.contains("error sending recovery email") ->
+                "Email service limit reached. Supabase default email limit is 3 emails/hour. Please try again later or configure custom SMTP."
             lower.contains("invalid login credentials") || lower.contains("invalid_credentials") || lower.contains("invalid grant") || lower.contains("invalid_grant") ->
                 "Incorrect email or password. Please check your details and try again."
             lower.contains("user already registered") || lower.contains("already registered") || lower.contains("user_already_exists") || lower.contains("identity already exists") ->
@@ -200,7 +202,7 @@ object AuthRepository {
                 "This account is registered as a Student. Please switch to the Student login tab."
             lower.contains("registered as a lecturer") ->
                 "This account is registered as a Lecturer. Please switch to the Lecturer login tab."
-            else -> if (msg.isNotBlank() && !msg.contains("Exception")) msg else defaultMsg
+            else -> defaultMsg
         }
     }
 
