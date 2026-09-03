@@ -1693,6 +1693,7 @@ object StudyGroupRepository {
             details = details,
             currentMembers = 1,
             maxMembers = 6,
+            isJoined = true,
             category = "GROUP",
             hostUserId = hostId,
             courseId = courseId,
