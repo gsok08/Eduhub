@@ -1,6 +1,5 @@
 package com.example.eduhub20.ui.auth
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,9 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -58,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -68,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import com.example.eduhub20.data.model.UserRole
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
+import com.example.eduhub20.R
 
 @Composable
 fun LoginScreen(
@@ -125,7 +123,7 @@ fun LoginScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.School,
+                            painter = painterResource(id = R.drawable.ic_school),
                             contentDescription = "EduHub Logo",
                             tint = EduHubPrimary,
                             modifier = Modifier.size(40.dp)
@@ -142,7 +140,7 @@ fun LoginScreen(
                     )
 
                     Text(
-                        text = "AMIT 3353 Mobile Application Development",
+                        text = "Welcome to EduHub",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -234,7 +232,7 @@ fun LoginScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Info,
+                                            painter = painterResource(id = R.drawable.ic_info),
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.error,
                                             modifier = Modifier.size(20.dp)
@@ -256,7 +254,13 @@ fun LoginScreen(
                                 value = uiState.email,
                                 onValueChange = { viewModel.onEmailChanged(it) },
                                 label = { Text("Email Address") },
-                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_email),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                              },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
                                 keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
@@ -271,11 +275,21 @@ fun LoginScreen(
                                 value = uiState.password,
                                 onValueChange = { viewModel.onPasswordChanged(it) },
                                 label = { Text("Password") },
-                                leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                                leadingIcon = {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_lock),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                              },
                                 trailingIcon = {
                                     IconButton(onClick = { viewModel.togglePasswordVisibility() }) {
                                         Icon(
-                                            imageVector = if (uiState.isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            painter = if (uiState.isPasswordVisible) {
+                                                painterResource(id = R.drawable.ic_visibility_off)
+                                            } else {
+                                                painterResource(id = R.drawable.ic_visibility)
+                                            },
                                             contentDescription = null
                                         )
                                     }

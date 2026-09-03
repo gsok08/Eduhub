@@ -1,6 +1,14 @@
 package com.example.eduhub20.ui.profile
 
+import android.net.Uri
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,28 +25,25 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -47,22 +52,32 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.eduhub20.data.model.EduHubUser
 import com.example.eduhub20.data.model.UserRole
-import com.example.eduhub20.data.repository.CourseRepository
+import com.example.eduhub20.data.repository.AuthRepository
+import com.example.eduhub20.data.repository.AvatarRepository
 import com.example.eduhub20.ui.theme.EduHubAccentGreen
 import com.example.eduhub20.ui.theme.EduHubAccentOrange
 import com.example.eduhub20.ui.theme.EduHubPrimary
 import com.example.eduhub20.ui.theme.ThemeState
+import kotlinx.coroutines.launch
+import com.example.eduhub20.R
+import com.example.eduhub20.data.model.CampusData
+import com.example.eduhub20.data.model.CampusData.campusList
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,23 +88,122 @@ fun ProfileScreen(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+
+    val snackbarHostState = remember { SnackbarHostState() }
     //val courses = CourseRepository.getCourses()
     var showEditNameDialog by remember { mutableStateOf(false) }
     var editedName by remember { mutableStateOf(currentUser?.name ?: "") }
     var notificationsEnabled by remember { mutableStateOf(true) }
     val isDarkTheme = ThemeState.isDarkTheme.value
+    Log.d("ProfileScreen", "Current user avatar URL: ${currentUser?.avatarUrl}")
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Campus selection state
+    val savedCampusName = currentUser?.campus
+    val defaultCampus = if (savedCampusName != null) {
+        CampusData.getCampusByName(savedCampusName) ?: CampusData.campusList[0]
+    } else {
+        CampusData.campusList[0]
+    }
+    var selectedCampus by remember { mutableStateOf(defaultCampus) }
+    var campusDropdownExpanded by remember { mutableStateOf(false) }
+
+    // Avatar states
+    var isUploadingAvatar by remember { mutableStateOf(false) }
+    var avatarError by remember { mutableStateOf<String?>(null) }
+    var avatarSuccess by remember { mutableStateOf<String?>(null) }
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Animation for avatar scale
+    val avatarScale by animateFloatAsState(
+        targetValue = if (isUploadingAvatar) 0.9f else 1f,
+        animationSpec = tween(durationMillis = 300),
+        label = "AvatarScale"
+    )
+
+    // Image picker launcher
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            selectedImageUri = uri
+            avatarError = null
+
+            // Upload the avatar
+            scope.launch {
+                isUploadingAvatar = true
+                val result = AvatarRepository.uploadAvatar(
+                    context = context,
+                    imageUri = uri,
+                    userId = currentUser?.id ?: ""
+                )
+
+                result.fold(
+                    onSuccess = { avatarUrl ->
+                        // Update user profile with new avatar URL
+                        val updateResult = AuthRepository.updateProfileAvatar(avatarUrl,context)
+                        updateResult.fold(
+                            onSuccess = {
+                                avatarSuccess = "Avatar updated successfully!"
+                                avatarError = null
+                                // Force recompose by updating the state
+                                selectedImageUri = null
+                                Log.d("ProfileScreen", "✅ Avatar updated: $avatarUrl")
+                            },
+                            onFailure = { e ->
+                                avatarError = "Failed to update profile: ${e.message}"
+                                Log.e("ProfileScreen", "❌ Failed to update profile: ${e.message}")
+                            }
+                        )
+                    },
+                    onFailure = { e ->
+                        avatarError = e.message ?: "Failed to upload avatar"
+                        Log.e("ProfileScreen", "❌ Failed to upload avatar: ${e.message}")
+                    }
+                )
+                isUploadingAvatar = false
+            }
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("My Profile", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { onNavigateBack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp),  // ✅ Smaller height (default is ~64dp)
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 2.dp,
+                tonalElevation = 0.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { onNavigateBack() },
+                        modifier = Modifier.size(36.dp)  // ✅ Smaller icon button
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_arrow_back),
+                            contentDescription = "Back",
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        "My Profile",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp  // ✅ Smaller font
+                    )
                 }
-            )
+            }
         },
         modifier = modifier.fillMaxSize()
     ) { innerPadding ->
@@ -101,19 +215,126 @@ fun ProfileScreen(
                 .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Avatar Header
             Box(
                 modifier = Modifier
-                    .size(90.dp)
-                    .clip(CircleShape)
-                    .background(EduHubPrimary.copy(alpha = 0.15f)),
-                contentAlignment = Alignment.Center
+                    .size(120.dp)
+                    .graphicsLayer {
+                        scaleX = avatarScale
+                        scaleY = avatarScale
+                    }
             ) {
-                Icon(
-                    imageVector = Icons.Default.AccountCircle,
-                    contentDescription = null,
-                    tint = EduHubPrimary,
-                    modifier = Modifier.size(64.dp)
+                // Avatar Circle Background
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                        .background(
+                            if (currentUser?.avatarUrl != null && currentUser.avatarUrl.isNotBlank())
+                                Color.Transparent
+                            else
+                                EduHubPrimary.copy(alpha = 0.12f)
+                        )
+                        .border(
+                            width = 3.dp,
+                            color = EduHubPrimary.copy(alpha = 0.3f),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isUploadingAvatar) {
+                        // Loading indicator
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.4f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                modifier = Modifier.size(40.dp),
+                                strokeWidth = 3.dp
+                            )
+                        }
+                    } else {
+                        // Show avatar image or placeholder
+                        if (currentUser?.avatarUrl != null && currentUser.avatarUrl.isNotBlank()) {
+                            AsyncImage(
+                                model = currentUser.avatarUrl,
+                                contentDescription = "Profile Avatar",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            // Centered default icon
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_account_circle),
+                                contentDescription = "Default Avatar",
+                                tint = EduHubPrimary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(80.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Upload button overlay (Improved with outer circle)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(36.dp)
+                ) {
+                    // Outer ring circle
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .border(
+                                width = 2.dp,
+                                color = EduHubPrimary,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // Inner colored circle
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(EduHubPrimary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconButton(
+                                onClick = { imagePickerLauncher.launch("image/*") },
+                                modifier = Modifier.size(28.dp),
+                                enabled = !isUploadingAvatar
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_camera_alt),
+                                    contentDescription = "Upload Avatar",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            //  Avatar upload status messages
+            if (avatarError != null) {
+                Text(
+                    text = avatarError!!,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            if (avatarSuccess != null) {
+                Text(
+                    text = avatarSuccess!!,
+                    color = EduHubAccentGreen,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
 
@@ -129,7 +350,12 @@ fun ProfileScreen(
                     editedName = currentUser?.name ?: ""
                     showEditNameDialog = true
                 }) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit Name", tint = EduHubPrimary, modifier = Modifier.size(20.dp))
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_edit),
+                        contentDescription = "Edit Name",
+                        tint = EduHubPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
 
@@ -137,7 +363,11 @@ fun ProfileScreen(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(if (currentUser?.role == UserRole.LECTURER) EduHubAccentOrange.copy(alpha = 0.15f) else EduHubAccentGreen.copy(alpha = 0.15f))
+                    .background(
+                        if (currentUser?.role == UserRole.LECTURER) EduHubAccentOrange.copy(
+                            alpha = 0.15f
+                        ) else EduHubAccentGreen.copy(alpha = 0.15f)
+                    )
                     .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
                 Text(
@@ -158,37 +388,153 @@ fun ProfileScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    Text("Account Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                    Text(
+                        "Account Details",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = EduHubPrimary
+                    )
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Email, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_email),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
-                            Text("Email Address", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(currentUser?.email ?: "No email", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(
+                                "Email Address",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                currentUser?.email ?: "No email",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_location_on),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                "Campus",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { campusDropdownExpanded = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = selectedCampus.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Icon(
+                                        imageVector = if (campusDropdownExpanded) {
+                                            Icons.Default.KeyboardArrowUp
+                                        } else {
+                                            Icons.Default.KeyboardArrowDown
+                                        },
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = campusDropdownExpanded,
+                                    onDismissRequest = { campusDropdownExpanded = false },
+                                    modifier = Modifier.fillMaxWidth(0.9f)
+                                ) {
+                                    campusList.forEach { campus ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(id = R.drawable.ic_location_on),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(18.dp),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Column {
+                                                        Text(
+                                                            text = campus.name,
+                                                            fontWeight = if (selectedCampus.id == campus.id) FontWeight.Bold else FontWeight.Normal
+                                                        )
+                                                        Text(
+                                                            text = campus.location,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            onClick = {
+                                                // Save to Supabase
+                                                selectedCampus = campus
+                                                campusDropdownExpanded = false
+                                                scope.launch {
+                                                    val result = AuthRepository.updateCampus(campus.name)
+                                                    result.onSuccess {
+                                                        Log.d("ProfileScreen", "✅ Campus saved: ${campus.name}")
+                                                    }
+                                                }
+                                            }
+
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Badge, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_school),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text("User ID", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(currentUser?.id ?: "Unknown", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                        }
-                    }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
-                            Text("Enrolled Courses", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(" Active Courses", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(
+                                "Enrolled Courses",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                " Active Courses",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
@@ -204,7 +550,12 @@ fun ProfileScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    Text("Preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubPrimary)
+                    Text(
+                        "Settings",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = EduHubPrimary
+                    )
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
@@ -214,9 +565,14 @@ fun ProfileScreen(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = if (isDarkTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
+                                painter = if (isDarkTheme) {
+                                    painterResource(id = R.drawable.ic_dark_mode)
+                                } else {
+                                    painterResource(id = R.drawable.ic_light_mode)
+                                },
                                 contentDescription = if (isDarkTheme) "Dark Mode" else "Light Mode",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
@@ -234,7 +590,9 @@ fun ProfileScreen(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = EduHubPrimary,
                                 uncheckedThumbColor = Color.White,
-                                uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                    alpha = 0.5f
+                                )
                             )
                         )
                     }
@@ -248,9 +606,17 @@ fun ProfileScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_notifications),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text("Study & Exam Reminders", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Study & Exam Reminders",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
                         }
                         Switch(
                             checked = notificationsEnabled,
@@ -259,7 +625,9 @@ fun ProfileScreen(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = EduHubPrimary,
                                 uncheckedThumbColor = Color.White,
-                                uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                uncheckedTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                    alpha = 0.5f
+                                )
                             )
                         )
                     }
@@ -271,11 +639,18 @@ fun ProfileScreen(
             // Sign Out Button
             Button(
                 onClick = onSignOut,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().height(48.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_logout),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Sign Out", fontWeight = FontWeight.Bold, fontSize = 15.sp)
             }
