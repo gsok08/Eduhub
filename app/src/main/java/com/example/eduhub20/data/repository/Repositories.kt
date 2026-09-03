@@ -180,6 +180,8 @@ object AuthRepository {
         val msg = e.message ?: e.localizedMessage ?: return defaultMsg
         val lower = msg.lowercase()
         return when {
+            lower.contains("over_email_send_rate_limit") || lower.contains("email rate limit") || lower.contains("security purposes") || lower.contains("once every") ->
+                "Too many email requests. For security purposes, please wait 60 seconds before trying again."
             lower.contains("invalid login credentials") || lower.contains("invalid_credentials") || lower.contains("invalid grant") || lower.contains("invalid_grant") ->
                 "Incorrect email or password. Please check your details and try again."
             lower.contains("user already registered") || lower.contains("already registered") || lower.contains("user_already_exists") || lower.contains("identity already exists") ->
@@ -187,16 +189,18 @@ object AuthRepository {
             lower.contains("password should be at least") || lower.contains("weak_password") ->
                 "Password must be at least 6 characters long."
             lower.contains("invalid email") || lower.contains("validation_failed") ->
-                "Please enter a valid email address."
+                "Please enter a valid email address (e.g. name@gmail.com)."
+            lower.contains("user not found") || lower.contains("user_not_found") ->
+                "No account found with this email address. Please check the spelling or sign up."
             lower.contains("network") || lower.contains("connect") || lower.contains("timeout") || lower.contains("unable to resolve host") || lower.contains("failed to connect") ->
                 "Unable to connect to server. Please check your internet connection."
             lower.contains("rate limit") || lower.contains("too many requests") || lower.contains("over_request_rate_limit") ->
-                "Too many login attempts. Please wait a moment and try again."
+                "Too many attempts. Please wait a moment and try again."
             lower.contains("registered as a student") ->
                 "This account is registered as a Student. Please switch to the Student login tab."
             lower.contains("registered as a lecturer") ->
                 "This account is registered as a Lecturer. Please switch to the Lecturer login tab."
-            else -> defaultMsg
+            else -> if (msg.isNotBlank() && !msg.contains("Exception")) msg else defaultMsg
         }
     }
 
