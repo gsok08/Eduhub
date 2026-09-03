@@ -10,6 +10,7 @@ import com.example.eduhub20.data.local.EduHubLocalStorage
 import com.example.eduhub20.data.model.*
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.providers.builtin.Email
+import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +28,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
+// ─── DTOs ──────────────────────────────────────────────────────────────────────
 @Serializable
 data class ProfileDto(
     val id: String,
@@ -74,6 +76,36 @@ data class EnrolledStudent(
     val userId: String,
     val fullName: String,
     val role: String = "STUDENT"
+)
+
+@Serializable
+data class ExamDto(
+    val id: String,
+    @SerialName("user_id")
+    val userId: String,
+    val name: String,
+    val date: Long
+)
+
+@Serializable
+data class TaskDto(
+    val id: String,
+    @SerialName("user_id")
+    val userId: String,
+    val name: String,
+    val date: Long,
+    @SerialName("is_completed")
+    val isCompleted: Boolean = false
+)
+
+@Serializable
+data class ReminderDto(
+    val id: String,
+    @SerialName("user_id")
+    val userId: String,
+    val name: String,
+    val date: Long,
+    val time: String
 )
 
 @Serializable
@@ -130,37 +162,27 @@ data class StudyGroupDto(
     val details: String,
     @SerialName("current_members")
     val currentMembers: Int = 1,
-
     @SerialName("max_members")
     val maxMembers: Int = 6,
-
     val category: String = "GROUP",
-
     @SerialName("host_user_id")
     val hostUserId: String = "",
-
     @SerialName("course_id")
     val courseId: String = "",
-
     @SerialName("course_code")
     val courseCode: String = "",
-
     @SerialName("course_title")
     val courseTitle: String = "",
-
     val status: String = "INACTIVE"
 )
 
 @Serializable
 data class StudyRoomMember(
     val id: String? = null,
-
     @SerialName("group_id")
     val groupId: String,
-
     @SerialName("user_id")
     val userId: String,
-
     @SerialName("joined_at")
     val joinedAt: String? = null
 )
@@ -218,7 +240,647 @@ data class PastYearPaperDto(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth Repository (100% Dynamic Supabase Auth & Strict Role Isolation)
+// 1. Study Group Repository
+// ─────────────────────────────────────────────────────────────────────────────
+object StudyGroupRepository {
+    private val _groups = mutableListOf<StudyGroup>()
+    private val _joinedGroupIds = mutableSetOf<String>()
+    private val _members = mutableListOf<StudyRoomMember>()
+    private val _messages = mutableMapOf<String, MutableList<ChatMessage>>()
+
+    fun onUserSignedIn(user: EduHubUser) {
+        _joinedGroupIds.clear()
+        _joinedGroupIds.addAll(EduHubLocalStorage.loadJoinedGroupIds(user.id))
+        _groups.clear()
+        val local = EduHubLocalStorage.loadGroups()
+        if (local.isNotEmpty()) {
+            _groups.addAll(local.map { g ->
+                val isHost = g.host.equals(user.name, true) || g.host.equals(user.email, true)
+                g.copy(isJoined = isHost || _joinedGroupIds.contains(g.id))
+            })
+        }
+    }
+
+    fun onUserSignOut() {
+        _joinedGroupIds.clear()
+        _groups.clear()
+        _messages.clear()
+    }
+
+    fun getGroups(): List<StudyGroup> {
+        val user = AuthRepository.currentUser.value
+        if (_groups.isEmpty() && user != null) {
+            onUserSignedIn(user)
+        }
+        return _groups.toList()
+    }
+
+    suspend fun fetchGroupsFromSupabase(): List<StudyGroup> = withContext(Dispatchers.IO) {
+        val currentUser = AuthRepository.currentUser.value
+        val userId = currentUser?.id ?: "guest"
+
+        _joinedGroupIds.clear()
+        _joinedGroupIds.addAll(
+            EduHubLocalStorage.loadJoinedGroupIds(userId)
+        )
+
+        try {
+            val joinedIds = if (currentUser != null) {
+                SupabaseClientProvider.postgrest
+                    .from("study_group_members")
+                    .select {
+                        filter {
+                            eq("user_id", currentUser.id)
+                        }
+                    }
+                    .decodeList<StudyGroupMember>()
+                    .map { it.groupId }
+                    .toSet()
+            } else {
+                emptySet()
+            }
+
+            val dtoList = SupabaseClientProvider.postgrest
+                .from("study_groups")
+                .select()
+                .decodeList<StudyGroupDto>()
+
+            Log.d("EduHubSupabase", "Fetched ${dtoList.size} groups from Supabase")
+
+            val allMembers = try {
+                SupabaseClientProvider.postgrest.from("group_members").select().decodeList<GroupMemberDto>()
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val memberCountMap = allMembers.groupBy { it.groupId }.mapValues { it.value.size }
+            val userJoinedGroupIdsFromDb = if (currentUser != null) {
+                allMembers.filter { it.userId == currentUser.id }.map { it.groupId }.toSet()
+            } else emptySet()
+
+            val remoteMapped = dtoList.map { dto ->
+                val isHost = (currentUser != null && dto.hostUserId.isNotBlank() && dto.hostUserId == currentUser.id) ||
+                        (currentUser != null && dto.host.equals(currentUser.name, true))
+                val isJoined = isHost || userJoinedGroupIdsFromDb.contains(dto.id) || _joinedGroupIds.contains(dto.id)
+
+                if (isJoined) {
+                    _joinedGroupIds.add(dto.id)
+                }
+
+                val realCount = if (memberCountMap.containsKey(dto.id) && memberCountMap[dto.id]!! > 0) {
+                    memberCountMap[dto.id]!!.coerceAtMost(dto.maxMembers)
+                } else {
+                    dto.currentMembers.coerceIn(1, dto.maxMembers)
+                }
+
+                if (realCount != dto.currentMembers) {
+                    try {
+                        SupabaseClientProvider.postgrest.from("study_groups").update(
+                            { set("current_members", realCount) }
+                        ) { filter { eq("id", dto.id) } }
+                    } catch (_: Exception) {}
+                }
+
+                StudyGroup(
+                    id = dto.id,
+                    name = dto.name,
+                    host = dto.host,
+                    details = dto.details,
+                    currentMembers = realCount,
+                    maxMembers = dto.maxMembers,
+                    isJoined = isJoined,
+                    category = dto.category,
+                    hostUserId = dto.hostUserId,
+                    courseId = dto.courseId,
+                    courseCode = dto.courseCode,
+                    courseTitle = dto.courseTitle,
+                    status = dto.status
+                )
+            }
+
+            val remoteIds = remoteMapped.map { it.id }.toSet()
+
+            _joinedGroupIds.retainAll(remoteIds)
+            val deletedGroups = _groups.filter { !remoteIds.contains(it.id) }
+            for (deleted in deletedGroups) {
+                _messages.remove(deleted.id)
+                EduHubLocalStorage.saveChatMessages(deleted.id, emptyList())
+            }
+
+            _groups.clear()
+            _groups.addAll(remoteMapped)
+            EduHubLocalStorage.saveGroups(remoteMapped)
+            if (currentUser != null) {
+                EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
+            }
+
+        } catch (e: Exception) {
+            Log.e(
+                "EduHubSupabase",
+                "Failed to fetch study_groups from Supabase: ${e.message}"
+            )
+        }
+
+        _groups.toList()
+    }
+
+    suspend fun joinGroup(groupId: String) = withContext(Dispatchers.IO) {
+        val currentUser = AuthRepository.currentUser.value
+        val alreadyJoined = _joinedGroupIds.contains(groupId)
+        _joinedGroupIds.add(groupId)
+        if (currentUser != null) {
+            EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
+        }
+
+        val i = _groups.indexOfFirst { it.id == groupId }
+        if (i != -1) {
+            val newCount = if (!alreadyJoined) (_groups[i].currentMembers + 1).coerceAtMost(_groups[i].maxMembers) else _groups[i].currentMembers
+            val updated = _groups[i].copy(isJoined = true, currentMembers = newCount)
+            _groups[i] = updated
+            EduHubLocalStorage.saveGroups(_groups.toList())
+
+            if (!alreadyJoined) {
+                try {
+                    SupabaseClientProvider.postgrest.from("study_groups").update(
+                        {
+                            set("current_members", updated.currentMembers)
+                        }
+                    ) {
+                        filter { eq("id", groupId) }
+                    }
+                    Log.d("EduHubSupabase", "Updated member count for group $groupId in Supabase")
+                } catch (e: Exception) {
+                    Log.e("EduHubSupabase", "Failed to update member count in Supabase: ${e.message}")
+                }
+            }
+        }
+
+        if (currentUser != null) {
+            try {
+                SupabaseClientProvider.postgrest
+                    .from("study_group_members")
+                    .insert(
+                        StudyGroupMember(
+                            groupId = groupId,
+                            userId = currentUser.id
+                        )
+                    )
+            } catch (_: Exception) {}
+
+            try {
+                SupabaseClientProvider.postgrest.from("group_members").upsert(
+                    GroupMemberDto(
+                        id = "${groupId}_${currentUser.id}",
+                        groupId = groupId,
+                        userId = currentUser.id,
+                        userName = currentUser.name,
+                        avatarUrl = currentUser.avatarUrl,
+                        role = "MEMBER"
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun createGroup(name: String, details: String, course: Course? = null, hostUser: EduHubUser? = null): StudyGroup = withContext(Dispatchers.IO) {
+        val groupId = UUID.randomUUID().toString()
+        val hostId = hostUser?.id ?: ""
+        val resolvedHost = if (hostUser != null && hostUser.name.isNotBlank() && hostUser.name != "Me") {
+            hostUser.name
+        } else if (hostUser != null && hostUser.email.isNotBlank()) {
+            hostUser.email.substringBefore("@").replace(".", " ").split(" ")
+                .joinToString(" ") { it.replaceFirstChar { c -> c.titlecase() } }
+        } else {
+            "Student"
+        }
+
+        _joinedGroupIds.add(groupId)
+        if (hostUser != null) {
+            EduHubLocalStorage.saveJoinedGroupIds(hostUser.id, _joinedGroupIds)
+        }
+
+        val courseId = course?.id ?: ""
+        val courseCode = course?.code ?: ""
+        val courseTitle = course?.title ?: ""
+
+        val g = StudyGroup(
+            id = groupId,
+            name = name,
+            host = resolvedHost,
+            details = details,
+            currentMembers = 1,
+            maxMembers = 6,
+            category = "GROUP",
+            hostUserId = hostId,
+            courseId = courseId,
+            courseCode = courseCode,
+            courseTitle = courseTitle,
+            status = "INACTIVE"
+        )
+        try {
+            SupabaseClientProvider.postgrest
+                .from("study_group_members")
+                .insert(
+                    StudyGroupMember(
+                        groupId = groupId,
+                        userId = hostId
+                    )
+                )
+        } catch (_: Exception) {}
+
+        _groups.add(0, g)
+        EduHubLocalStorage.saveGroups(_groups.toList())
+
+        val welcomeMsg = ChatMessage(
+            UUID.randomUUID().toString(), groupId, "System", "Info",
+            "Welcome to \"$name\"! Created by $resolvedHost.", "Just now", false
+        )
+        val msgList = _messages.getOrPut(groupId) { mutableListOf() }
+        msgList.add(welcomeMsg)
+        EduHubLocalStorage.saveChatMessages(groupId, msgList.toList())
+
+        try {
+            SupabaseClientProvider.postgrest.from("study_groups").upsert(
+                StudyGroupDto(
+                    id = groupId,
+                    name = name,
+                    host = resolvedHost,
+                    details = details,
+                    currentMembers = 1,
+                    maxMembers = 6,
+                    category = "GROUP",
+                    hostUserId = hostId,
+                    courseId = courseId,
+                    courseCode = courseCode,
+                    courseTitle = courseTitle,
+                    status = "INACTIVE"
+                )
+            )
+            Log.d("EduHubSupabase", "Successfully upserted study group '$name' into Supabase")
+        } catch (e: Exception) {
+            Log.w("EduHubSupabase", "Primary group upsert failed: ${e.message}. Retrying with base JSON...")
+            try {
+                val baseGroup = buildJsonObject {
+                    put("id", groupId)
+                    put("name", name)
+                    put("host", resolvedHost)
+                    put("details", details)
+                    put("current_members", 1)
+                    put("max_members", 6)
+                    put("category", "GROUP")
+                    if (courseId.isNotBlank()) put("course_id", courseId)
+                    if (courseCode.isNotBlank()) put("course_code", courseCode)
+                    if (courseTitle.isNotBlank()) put("course_title", courseTitle)
+                }
+                SupabaseClientProvider.postgrest.from("study_groups").upsert(baseGroup)
+            } catch (inner: Exception) {
+                Log.e("EduHubSupabase", "Failed to upsert study group into Supabase: ${inner.message}")
+            }
+        }
+
+        if (hostUser != null) {
+            try {
+                SupabaseClientProvider.postgrest.from("group_members").upsert(
+                    GroupMemberDto(
+                        id = "${groupId}_${hostUser.id}",
+                        groupId = groupId,
+                        userId = hostUser.id,
+                        userName = resolvedHost,
+                        avatarUrl = hostUser.avatarUrl,
+                        role = "HOST"
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+
+        try {
+            val welcomeJson = buildJsonObject {
+                put("id", welcomeMsg.id)
+                put("group_id", groupId)
+                put("sender_name", welcomeMsg.senderName)
+                put("sender_role", welcomeMsg.senderRole)
+                put("message", welcomeMsg.message)
+                put("timestamp", welcomeMsg.timestamp)
+                put("is_from_me", false)
+            }
+            SupabaseClientProvider.postgrest.from("chat_messages").insert(welcomeJson)
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to insert initial chat message: ${e.message}")
+        }
+
+        g
+    }
+
+    suspend fun createGroup(name: String, details: String, hostUser: EduHubUser?): StudyGroup =
+        createGroup(name, details, null, hostUser)
+
+    fun getStudyRoomMembers(): List<StudyRoomMember> = _members.toList()
+
+    fun getChatMessages(groupId: String): List<ChatMessage> {
+        val inMem = _messages[groupId]
+        if (inMem != null && inMem.isNotEmpty()) return inMem.toList()
+        val local = EduHubLocalStorage.loadChatMessages(groupId)
+        if (local.isNotEmpty()) {
+            _messages[groupId] = local.toMutableList()
+            return local
+        }
+        return emptyList()
+    }
+
+    suspend fun fetchChatMessages(groupId: String, currentUserName: String = "Me"): List<ChatMessage> = withContext(Dispatchers.IO) {
+        val local = EduHubLocalStorage.loadChatMessages(groupId)
+        if (local.isNotEmpty()) {
+            _messages[groupId] = local.toMutableList()
+        }
+
+        val currentUser = AuthRepository.currentUser.value
+
+        try {
+            val dtoList = SupabaseClientProvider.postgrest.from("chat_messages")
+                .select {
+                    filter { eq("group_id", groupId) }
+                }
+                .decodeList<ChatMessageDto>()
+
+            Log.d("EduHubSupabase", "Fetched ${dtoList.size} messages for group $groupId from Supabase")
+
+            val remoteMapped = dtoList.map { dto ->
+                val isMe = (currentUser != null && dto.senderId.isNotBlank() && dto.senderId == currentUser.id) ||
+                        dto.senderName.equals(currentUserName, ignoreCase = true)
+                ChatMessage(
+                    id = dto.id,
+                    groupId = dto.groupId,
+                    senderName = dto.senderName,
+                    senderRole = dto.senderRole,
+                    message = dto.message,
+                    timestamp = dto.timestamp,
+                    isFromMe = isMe,
+                    senderAvatarUrl = dto.senderAvatarUrl,
+                    senderId = dto.senderId
+                )
+            }
+
+            val remoteIds = remoteMapped.map { it.id }.toSet()
+            val localPending = (_messages[groupId] ?: emptyList()).filter { !remoteIds.contains(it.id) }
+            val merged = (remoteMapped + localPending).distinctBy { it.id }
+
+            _messages[groupId] = merged.toMutableList()
+            EduHubLocalStorage.saveChatMessages(groupId, merged)
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to fetch chat_messages from Supabase: ${e.message}")
+        }
+
+        _messages.getOrPut(groupId) { mutableListOf() }.toList()
+    }
+
+    suspend fun sendMessage(
+        groupId: String,
+        text: String,
+        senderName: String = "Me",
+        senderRole: String = "Student",
+        customMsgId: String? = null
+    ): ChatMessage = withContext(Dispatchers.IO) {
+        val now = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+        val msgId = customMsgId ?: UUID.randomUUID().toString()
+        val currentUser = AuthRepository.currentUser.value
+        val senderAvatarUrl = currentUser?.avatarUrl
+        val senderId = currentUser?.id ?: ""
+
+        val msg = ChatMessage(
+            id = msgId,
+            groupId = groupId,
+            senderName = senderName,
+            senderRole = senderRole,
+            message = text,
+            timestamp = now,
+            isFromMe = true,
+            senderAvatarUrl = senderAvatarUrl,
+            senderId = senderId
+        )
+
+        val list = _messages.getOrPut(groupId) { mutableListOf() }
+        if (list.none { it.id == msgId }) {
+            list.add(msg)
+        }
+        EduHubLocalStorage.saveChatMessages(groupId, list.toList())
+
+        try {
+            val fullMsg = buildJsonObject {
+                put("id", msgId)
+                put("group_id", groupId)
+                put("sender_name", senderName)
+                put("sender_role", senderRole)
+                put("message", text)
+                put("timestamp", now)
+                put("is_from_me", true)
+                if (!senderAvatarUrl.isNullOrBlank()) put("sender_avatar_url", senderAvatarUrl)
+                if (senderId.isNotBlank()) put("sender_id", senderId)
+            }
+            SupabaseClientProvider.postgrest.from("chat_messages").insert(fullMsg)
+            Log.d("EduHubSupabase", "Sent chat message to Supabase for group $groupId")
+        } catch (e: Exception) {
+            Log.w("EduHubSupabase", "Insert with extra columns failed: ${e.message}. Retrying with base columns...")
+            try {
+                val baseMsg = buildJsonObject {
+                    put("id", msgId)
+                    put("group_id", groupId)
+                    put("sender_name", senderName)
+                    put("sender_role", senderRole)
+                    put("message", text)
+                    put("timestamp", now)
+                    put("is_from_me", true)
+                }
+                SupabaseClientProvider.postgrest.from("chat_messages").insert(baseMsg)
+                Log.d("EduHubSupabase", "Sent base chat message to Supabase successfully")
+            } catch (inner: Exception) {
+                Log.e("EduHubSupabase", "Failed to send message to Supabase: ${inner.message}")
+            }
+        }
+
+        msg
+    }
+
+    suspend fun clearChatHistory(groupId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        _messages[groupId]?.clear()
+        EduHubLocalStorage.saveChatMessages(groupId, emptyList())
+        try {
+            SupabaseClientProvider.postgrest.from("chat_messages").delete {
+                filter { eq("group_id", groupId) }
+            }
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to clear chat history in Supabase: ${e.message}")
+        }
+        Result.success(Unit)
+    }
+
+    suspend fun fetchGroupMembers(groupId: String, groupHostName: String = "", hostUserId: String = ""): List<GroupMember> = withContext(Dispatchers.IO) {
+        try {
+            val dtoList = SupabaseClientProvider.postgrest.from("group_members")
+                .select { filter { eq("group_id", groupId) } }
+                .decodeList<GroupMemberDto>()
+
+            if (dtoList.isNotEmpty()) {
+                return@withContext dtoList.map {
+                    GroupMember(
+                        id = it.id,
+                        groupId = it.groupId,
+                        userId = it.userId,
+                        userName = it.userName,
+                        userAvatarUrl = it.avatarUrl,
+                        role = it.role
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("EduHubSupabase", "Failed to fetch group_members from Supabase: ${e.message}")
+        }
+
+        val currentUser = AuthRepository.currentUser.value
+        val list = mutableListOf<GroupMember>()
+        if (groupHostName.isNotBlank() || hostUserId.isNotBlank()) {
+            list.add(
+                GroupMember(
+                    id = "${groupId}_host",
+                    groupId = groupId,
+                    userId = hostUserId,
+                    userName = if (groupHostName.isNotBlank()) groupHostName else "Host",
+                    userAvatarUrl = if (currentUser?.id == hostUserId) currentUser.avatarUrl else null,
+                    role = "HOST"
+                )
+            )
+        }
+        if (currentUser != null && currentUser.id != hostUserId && _joinedGroupIds.contains(groupId)) {
+            list.add(
+                GroupMember(
+                    id = "${groupId}_${currentUser.id}",
+                    groupId = groupId,
+                    userId = currentUser.id,
+                    userName = currentUser.name,
+                    userAvatarUrl = currentUser.avatarUrl,
+                    role = "MEMBER"
+                )
+            )
+        }
+        if (list.isNotEmpty()) {
+            for (m in list) {
+                try {
+                    SupabaseClientProvider.postgrest.from("group_members").upsert(
+                        GroupMemberDto(
+                            id = m.id,
+                            groupId = m.groupId,
+                            userId = m.userId,
+                            userName = m.userName,
+                            avatarUrl = m.userAvatarUrl,
+                            role = m.role
+                        )
+                    )
+                } catch (_: Exception) {}
+            }
+        }
+        list
+    }
+
+    suspend fun setMemberRole(groupId: String, targetUserId: String, newRole: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("group_members").update(
+                { set("role", newRole) }
+            ) {
+                filter {
+                    eq("group_id", groupId)
+                    eq("user_id", targetUserId)
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to update member role: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun kickMember(groupId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("group_members").delete {
+                filter {
+                    eq("group_id", groupId)
+                    eq("user_id", targetUserId)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to delete from group_members: ${e.message}")
+        }
+
+        val i = _groups.indexOfFirst { it.id == groupId }
+        if (i != -1) {
+            val updatedMembers = maxOf(1, _groups[i].currentMembers - 1)
+            _groups[i] = _groups[i].copy(currentMembers = updatedMembers)
+            EduHubLocalStorage.saveGroups(_groups.toList())
+
+            try {
+                SupabaseClientProvider.postgrest.from("study_groups").update(
+                    { set("current_members", updatedMembers) }
+                ) { filter { eq("id", groupId) } }
+            } catch (_: Exception) {}
+        }
+
+        val currentUser = AuthRepository.currentUser.value
+        if (currentUser?.id == targetUserId) {
+            _joinedGroupIds.remove(groupId)
+            EduHubLocalStorage.saveJoinedGroupIds(targetUserId, _joinedGroupIds)
+        }
+
+        Result.success(Unit)
+    }
+
+    suspend fun leaveGroup(groupId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentUser = AuthRepository.currentUser.value ?: return@withContext Result.failure(Exception("Not signed in"))
+        kickMember(groupId, currentUser.id)
+    }
+
+    suspend fun joinGroupByCodeOrLink(rawInput: String): Result<StudyGroup> = withContext(Dispatchers.IO) {
+        val cleanInput = rawInput.trim()
+        val cleanId = when {
+            cleanInput.contains("join/") -> cleanInput.substringAfter("join/").substringBefore("?").substringBefore("/").trim()
+            cleanInput.contains("groupId=") -> cleanInput.substringAfter("groupId=").substringBefore("&").trim()
+            else -> cleanInput
+        }
+        if (cleanId.isBlank()) return@withContext Result.failure(Exception("Please enter a valid Group Code or Invitation Link."))
+
+        var group = _groups.find { it.id.equals(cleanId, ignoreCase = true) }
+        if (group == null) {
+            try {
+                val dto = SupabaseClientProvider.postgrest.from("study_groups")
+                    .select { filter { eq("id", cleanId) } }
+                    .decodeSingleOrNull<StudyGroupDto>()
+                if (dto != null) {
+                    group = StudyGroup(
+                        id = dto.id,
+                        name = dto.name,
+                        host = dto.host,
+                        details = dto.details,
+                        currentMembers = dto.currentMembers,
+                        maxMembers = dto.maxMembers,
+                        category = dto.category,
+                        hostUserId = dto.hostUserId,
+                        isJoined = true
+                    )
+                    _groups.add(0, group)
+                    EduHubLocalStorage.saveGroups(_groups.toList())
+                }
+            } catch (e: Exception) {
+                Log.e("EduHubSupabase", "Failed to lookup group by id $cleanId: ${e.message}")
+            }
+        }
+
+        if (group == null) {
+            return@withContext Result.failure(Exception("Study group not found. Please check the code or link."))
+        }
+
+        joinGroup(group.id)
+        Result.success(group)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. Auth Repository (100% Dynamic Supabase Auth & Strict Role Isolation)
 // ─────────────────────────────────────────────────────────────────────────────
 object AuthRepository {
     private val _currentUser = MutableStateFlow<EduHubUser?>(null)
@@ -261,7 +923,6 @@ object AuthRepository {
         val nowIso = java.time.Instant.now().toString()
         _currentSessionId.value = nowIso
 
-        // 1. Try updating both active_session_id and updated_at
         try {
             val withCol = buildJsonObject {
                 put("updated_at", nowIso)
@@ -272,7 +933,6 @@ object AuthRepository {
             }
             Log.d("AuthRepository", "✅ Successfully updated active_session_id and updated_at to $nowIso")
         } catch (_: Exception) {
-            // 2. Fallback: update updated_at (which is guaranteed to exist in Supabase profiles table)
             try {
                 val timestampOnly = buildJsonObject {
                     put("updated_at", nowIso)
@@ -286,7 +946,6 @@ object AuthRepository {
             }
         }
 
-        // 3. Also update Supabase Auth user_metadata so user record carries active_session_id
         try {
             SupabaseClientProvider.auth.updateUser {
                 data = buildJsonObject {
@@ -334,7 +993,6 @@ object AuthRepository {
                 .decodeSingleOrNull<JsonObject>()
 
             if (jsonObject != null) {
-                // Check 1: active_session_id if populated in database
                 val dbSession = jsonObject["active_session_id"]?.jsonPrimitive?.contentOrNull
                 if (!dbSession.isNullOrBlank()) {
                     val valid = dbSession == localSession
@@ -342,7 +1000,6 @@ object AuthRepository {
                     return@withContext valid
                 }
 
-                // Check 2: updated_at timestamp (guaranteed in Supabase profiles)
                 val dbUpdatedAt = jsonObject["updated_at"]?.jsonPrimitive?.contentOrNull
                 if (!dbUpdatedAt.isNullOrBlank()) {
                     val matches = try {
@@ -392,7 +1049,6 @@ object AuthRepository {
                 }
             } catch (_: Exception) {}
 
-            // Enforce role separation: If registered as STUDENT in Supabase, reject lecturer login
             if (roleInDb.equals("STUDENT", ignoreCase = true)) {
                 SupabaseClientProvider.auth.signOut()
                 return@withContext Result.failure(Exception("This account is registered as a Student. Please switch to the Student login tab."))
@@ -479,7 +1135,6 @@ object AuthRepository {
                 }
             } catch (_: Exception) {}
 
-            // Enforce role separation: If registered as LECTURER in Supabase, reject student login
             if (roleInDb.equals("LECTURER", ignoreCase = true)) {
                 SupabaseClientProvider.auth.signOut()
                 return@withContext Result.failure(Exception("This account is registered as a Lecturer. Please switch to the Lecturer login tab."))
@@ -527,7 +1182,7 @@ object AuthRepository {
                 UserRole.STUDENT,
                 avatarUrl = avatarUrl,
                 campus = campus
-                )
+            )
             _currentUser.value = user
             StudyGroupRepository.onUserSignedIn(user)
             CourseRepository.onUserSignedIn(user)
@@ -654,16 +1309,13 @@ object AuthRepository {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("User not logged in"))
 
         try {
-            // Update Supabase
             SupabaseClientProvider.postgrest.from("profiles")
                 .update(mapOf("avatar_url" to avatarUrl)) {
                     filter { eq("id", user.id) }
                 }
 
-            // Update local user
             _currentUser.value = user.copy(avatarUrl = avatarUrl)
 
-            // ✅ Update SharedPreferences
             val prefs = context.getSharedPreferences("eduhub_auth_prefs", Context.MODE_PRIVATE)
             if (prefs.getBoolean("remember_me", false)) {
                 prefs.edit().putString("saved_user_avatar_url", avatarUrl).apply()
@@ -680,7 +1332,6 @@ object AuthRepository {
         val user = _currentUser.value ?: return@withContext Result.failure(Exception("User not logged in"))
 
         try {
-            // Update profiles table in Supabase
             SupabaseClientProvider.postgrest.from("profiles")
                 .update(
                     mapOf("campus" to campus)
@@ -688,10 +1339,8 @@ object AuthRepository {
                     filter { eq("id", user.id) }
                 }
 
-            // Update local user
             _currentUser.value = user.copy(campus = campus)
 
-            // Update SharedPreferences if remember me is enabled
             try {
                 val context = android.app.Application().applicationContext
                 val prefs = context.getSharedPreferences("eduhub_auth_prefs", Context.MODE_PRIVATE)
@@ -714,7 +1363,6 @@ object AuthRepository {
         try {
             val user = _currentUser.value ?: return@withContext Result.failure(Exception("User not logged in"))
 
-            // Validate new password
             if (newPassword.length < 6) {
                 return@withContext Result.failure(Exception("Password must be at least 6 characters long"))
             }
@@ -727,7 +1375,6 @@ object AuthRepository {
                 return@withContext Result.failure(Exception("Please enter your current password"))
             }
 
-            // ✅ Step 1: Verify current password
             try {
                 SupabaseClientProvider.auth.signInWith(Email) {
                     this.email = user.email
@@ -739,7 +1386,6 @@ object AuthRepository {
                 return@withContext Result.failure(Exception("Current password is incorrect. Please try again."))
             }
 
-            // ✅ Step 2: Change to new password
             try {
                 SupabaseClientProvider.auth.updateUser {
                     this.password = newPassword
@@ -757,7 +1403,6 @@ object AuthRepository {
         }
     }
 
-
     fun signOut() {
         try {
             // Non-blocking sign out
@@ -767,8 +1412,9 @@ object AuthRepository {
         CourseRepository.onUserSignOut()
     }
 }
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Course Repository (Enrollment Scoping, Student Roster & Course Hiding)
+// 3. Course Repository (Enrollment Scoping, Student Roster & Course Hiding)
 // ─────────────────────────────────────────────────────────────────────────────
 object CourseRepository {
     private val _courses = mutableListOf<Course>()
@@ -813,11 +1459,9 @@ object CourseRepository {
         if (user == null) return emptyList()
 
         return if (user.role == UserRole.LECTURER) {
-            // Lecturer sees courses taught by them or all portal courses
             val myTaught = all.filter { it.lecturerName.equals(user.name, ignoreCase = true) || it.lecturerName.contains("Lecturer", true) }
             if (myTaught.isNotEmpty()) myTaught else all
         } else {
-            // Student ONLY sees courses they have joined via code
             if (_enrolledCourseIds.isEmpty()) {
                 _enrolledCourseIds.addAll(EduHubLocalStorage.loadEnrolledCourseIds(user.id))
             }
@@ -1133,7 +1777,7 @@ object CourseRepository {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Note / Quiz Repository (Full Local + Cloud Persistence & AI Note Caching)
+// 4. Note / Quiz Repository (Full Local + Cloud Persistence & AI Note Caching)
 // ─────────────────────────────────────────────────────────────────────────────
 object NoteQuizRepository {
     private val _notes = mutableListOf<LectureNote>()
@@ -1280,7 +1924,6 @@ object NoteQuizRepository {
         val cached = getCachedAiNoteOnly(noteId)
         if (cached != null) return@withContext cached
 
-        // Check Supabase ai_generated_notes without triggering AI generation
         try {
             val remoteDto = SupabaseClientProvider.postgrest.from("ai_generated_notes")
                 .select { filter { eq("note_id", noteId) } }
@@ -1308,9 +1951,6 @@ object NoteQuizRepository {
         null
     }
 
-    /**
-     * Retrieves the cached AI note from disk/memory or generates a new one via Gemini API.
-     */
     suspend fun getOrGenerateAiNote(note: LectureNote, forceRegenerate: Boolean = false): AiGeneratedNote = withContext(Dispatchers.IO) {
         if (!forceRegenerate) {
             val inMem = _aiCache[note.id]
@@ -1322,7 +1962,6 @@ object NoteQuizRepository {
                 return@withContext localSaved
             }
 
-            // Check Supabase ai_generated_notes
             try {
                 val remoteDto = SupabaseClientProvider.postgrest.from("ai_generated_notes")
                     .select { filter { eq("note_id", note.id) } }
@@ -1349,12 +1988,10 @@ object NoteQuizRepository {
             } catch (_: Exception) {}
         }
 
-        // Generate new note via Gemini API
         val generated = EduHubAiGenerator.generateNoteSummary(note)
         _aiCache[note.id] = generated
         EduHubLocalStorage.saveAiNote(note.id, generated)
 
-        // Save to Supabase ai_generated_notes
         try {
             SupabaseClientProvider.postgrest.from("ai_generated_notes").upsert(
                 AiGeneratedNoteDto(
@@ -1372,9 +2009,6 @@ object NoteQuizRepository {
         generated
     }
 
-    /**
-     * Saves user-edited study note to local storage and Supabase.
-     */
     suspend fun saveOrUpdateAiNote(aiNote: AiGeneratedNote) = withContext(Dispatchers.IO) {
         _aiCache[aiNote.noteId] = aiNote
         EduHubLocalStorage.saveAiNote(aiNote.noteId, aiNote)
@@ -1438,677 +2072,221 @@ object NoteQuizRepository {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Calendar Repository
+// 5. Calendar Repository
 // ─────────────────────────────────────────────────────────────────────────────
 object CalendarRepository {
-    private val _tasks = mutableListOf<CalendarTask>()
-    private val _countdowns = mutableListOf<ExamCountdown>()
+    private val _exams = MutableStateFlow<List<ExamEntity>>(emptyList())
+    val exams: StateFlow<List<ExamEntity>> = _exams.asStateFlow()
 
-    fun getTasks(date: String = ""): List<CalendarTask> =
-        if (date.isBlank()) _tasks.toList() else _tasks.filter { it.date == date }
+    private val _tasks = MutableStateFlow<List<TaskEntity>>(emptyList())
+    val tasks: StateFlow<List<TaskEntity>> = _tasks.asStateFlow()
 
-    fun toggleTask(id: String) {
-        val i = _tasks.indexOfFirst { it.id == id }
-        if (i != -1) _tasks[i] = _tasks[i].copy(isCompleted = !_tasks[i].isCompleted)
-    }
+    private val _reminders = MutableStateFlow<List<ReminderEntity>>(emptyList())
+    val reminders: StateFlow<List<ReminderEntity>> = _reminders.asStateFlow()
 
-    fun addTask(title: String, date: String) {
-        _tasks.add(CalendarTask(UUID.randomUUID().toString(), title, false, date))
-    }
-
-    fun getCountdowns(): List<ExamCountdown> = _countdowns.toList()
-
-    fun addCountdown(cd: ExamCountdown) = _countdowns.add(0, cd)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Study Group Repository (User-Scoped Group Membership & Multi-Device Sync)
-// ─────────────────────────────────────────────────────────────────────────────
-object StudyGroupRepository {
-    private val _groups = mutableListOf<StudyGroup>()
-    private val _joinedGroupIds = mutableSetOf<String>()
-    private val _members = mutableListOf<StudyRoomMember>()
-    private val _messages = mutableMapOf<String, MutableList<ChatMessage>>()
-
-    fun onUserSignedIn(user: EduHubUser) {
-        _joinedGroupIds.clear()
-        _joinedGroupIds.addAll(EduHubLocalStorage.loadJoinedGroupIds(user.id))
-        _groups.clear()
-        val local = EduHubLocalStorage.loadGroups()
-        if (local.isNotEmpty()) {
-            _groups.addAll(local.map { g ->
-                val isHost = g.host.equals(user.name, true) || g.host.equals(user.email, true)
-                g.copy(isJoined = isHost || _joinedGroupIds.contains(g.id))
-            })
-        }
-    }
-
-    fun onUserSignOut() {
-        _joinedGroupIds.clear()
-        _groups.clear()
-        _messages.clear()
-    }
-
-    fun getGroups(): List<StudyGroup> {
-        val user = AuthRepository.currentUser.value
-        if (_groups.isEmpty() && user != null) {
-            onUserSignedIn(user)
-        }
-        return _groups.toList()
-    }
-
-    suspend fun fetchGroupsFromSupabase(): List<StudyGroup> = withContext(Dispatchers.IO) {
-        val currentUser = AuthRepository.currentUser.value
-        val userId = currentUser?.id ?: "guest"
-
-        _joinedGroupIds.clear()
-        _joinedGroupIds.addAll(
-            EduHubLocalStorage.loadJoinedGroupIds(userId)
-        )
-
+    suspend fun fetchExams(userId: String) = withContext(Dispatchers.IO) {
         try {
-            val joinedIds = if (currentUser != null) {
-                SupabaseClientProvider.postgrest
-                    .from("study_group_members")
-                    .select {
-                        filter {
-                            eq("user_id", currentUser.id)
-                        }
-                    }
-                    .decodeList<StudyGroupMember>()
-                    .map { it.groupId }
-                    .toSet()
-            } else {
-                emptySet()
-            }
-
-            val dtoList = SupabaseClientProvider.postgrest
-                .from("study_groups")
+            val allExams = SupabaseClientProvider.postgrest.from("exams")
                 .select()
-                .decodeList<StudyGroupDto>()
+                .decodeList<ExamDto>()
 
-            Log.d("EduHubSupabase", "Fetched ${dtoList.size} groups from Supabase")
-
-            val allMembers = try {
-                SupabaseClientProvider.postgrest.from("group_members").select().decodeList<GroupMemberDto>()
-            } catch (_: Exception) {
-                emptyList()
-            }
-            val memberCountMap = allMembers.groupBy { it.groupId }.mapValues { it.value.size }
-            val userJoinedGroupIdsFromDb = if (currentUser != null) {
-                allMembers.filter { it.userId == currentUser.id }.map { it.groupId }.toSet()
-            } else emptySet()
-
-            val remoteMapped = dtoList.map { dto ->
-                val isHost = (currentUser != null && dto.hostUserId.isNotBlank() && dto.hostUserId == currentUser.id) ||
-                        (currentUser != null && dto.host.equals(currentUser.name, true))
-                val isJoined = isHost || userJoinedGroupIdsFromDb.contains(dto.id) || _joinedGroupIds.contains(dto.id)
-
-                if (isJoined) {
-                    _joinedGroupIds.add(dto.id)
-                }
-
-                val realCount = if (memberCountMap.containsKey(dto.id) && memberCountMap[dto.id]!! > 0) {
-                    memberCountMap[dto.id]!!.coerceAtMost(dto.maxMembers)
-                } else {
-                    dto.currentMembers.coerceIn(1, dto.maxMembers)
-                }
-
-                // Self-heal Supabase current_members column if out of sync
-                if (realCount != dto.currentMembers) {
-                    try {
-                        SupabaseClientProvider.postgrest.from("study_groups").update(
-                            { set("current_members", realCount) }
-                        ) { filter { eq("id", dto.id) } }
-                    } catch (_: Exception) {}
-                }
-
-                StudyGroup(
+            val entities = allExams.filter { it.userId == userId }.map { dto ->
+                ExamEntity(
                     id = dto.id,
+                    userId = dto.userId,
                     name = dto.name,
-                    host = dto.host,
-                    details = dto.details,
-                    currentMembers = realCount,
-                    maxMembers = dto.maxMembers,
-                    isJoined = isJoined,
-                    category = dto.category,
-                    hostUserId = dto.hostUserId,
-                    courseId = dto.courseId,
-                    courseCode = dto.courseCode,
-                    courseTitle = dto.courseTitle,
-                    status = dto.status
+                    date = dto.date
                 )
             }
-
-            val remoteIds = remoteMapped.map { it.id }.toSet()
-
-            // Purge deleted groups and their chat messages
-            _joinedGroupIds.retainAll(remoteIds)
-            val deletedGroups = _groups.filter { !remoteIds.contains(it.id) }
-            for (deleted in deletedGroups) {
-                _messages.remove(deleted.id)
-                EduHubLocalStorage.saveChatMessages(deleted.id, emptyList())
-            }
-
-            _groups.clear()
-            _groups.addAll(remoteMapped)
-            EduHubLocalStorage.saveGroups(remoteMapped)
-            if (currentUser != null) {
-                EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
-            }
-
+            _exams.value = entities
+            Log.d("CalendarRepo", "Fetched ${entities.size} exams")
         } catch (e: Exception) {
-            Log.e(
-                "EduHubSupabase",
-                "Failed to fetch study_groups from Supabase: ${e.message}"
-            )
-        }
-
-        _groups.toList()
-    }
-
-    suspend fun joinGroup(groupId: String) = withContext(Dispatchers.IO) {
-        val currentUser = AuthRepository.currentUser.value
-        val alreadyJoined = _joinedGroupIds.contains(groupId)
-        _joinedGroupIds.add(groupId)
-        if (currentUser != null) {
-            EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
-        }
-
-        val i = _groups.indexOfFirst { it.id == groupId }
-        if (i != -1) {
-            val newCount = if (!alreadyJoined) (_groups[i].currentMembers + 1).coerceAtMost(_groups[i].maxMembers) else _groups[i].currentMembers
-            val updated = _groups[i].copy(isJoined = true, currentMembers = newCount)
-            _groups[i] = updated
-            EduHubLocalStorage.saveGroups(_groups.toList())
-
-            if (!alreadyJoined) {
-                try {
-                    SupabaseClientProvider.postgrest.from("study_groups").update(
-                        {
-                            set("current_members", updated.currentMembers)
-                        }
-                    ) {
-                        filter { eq("id", groupId) }
-                    }
-                    Log.d("EduHubSupabase", "Updated member count for group $groupId in Supabase")
-                } catch (e: Exception) {
-                    Log.e("EduHubSupabase", "Failed to update member count in Supabase: ${e.message}")
-                }
-            }
-        }
-
-        if (currentUser != null) {
-            try {
-                SupabaseClientProvider.postgrest
-                    .from("study_group_members")
-                    .insert(
-                        StudyGroupMember(
-                            groupId = groupId,
-                            userId = currentUser.id
-                        )
-                    )
-            } catch (_: Exception) {}
-
-            try {
-                SupabaseClientProvider.postgrest.from("group_members").upsert(
-                    GroupMemberDto(
-                        id = "${groupId}_${currentUser.id}",
-                        groupId = groupId,
-                        userId = currentUser.id,
-                        userName = currentUser.name,
-                        avatarUrl = currentUser.avatarUrl,
-                        role = "MEMBER"
-                    )
-                )
-            } catch (_: Exception) {}
+            Log.e("CalendarRepo", "Failed to fetch exams: ${e.message}")
+            _exams.value = emptyList()
         }
     }
 
-    suspend fun createGroup(name: String, details: String, course: Course? = null, hostUser: EduHubUser? = null): StudyGroup = withContext(Dispatchers.IO) {
-        val groupId = UUID.randomUUID().toString()
-        val hostId = hostUser?.id ?: ""
-        val resolvedHost = if (hostUser != null && hostUser.name.isNotBlank() && hostUser.name != "Me") {
-            hostUser.name
-        } else if (hostUser != null && hostUser.email.isNotBlank()) {
-            hostUser.email.substringBefore("@").replace(".", " ").split(" ")
-                .joinToString(" ") { it.replaceFirstChar { c -> c.titlecase() } }
-        } else {
-            "Student"
-        }
-
-        _joinedGroupIds.add(groupId)
-        if (hostUser != null) {
-            EduHubLocalStorage.saveJoinedGroupIds(hostUser.id, _joinedGroupIds)
-        }
-
-        val courseId = course?.id ?: ""
-        val courseCode = course?.code ?: ""
-        val courseTitle = course?.title ?: ""
-
-        val g = StudyGroup(
-            id = groupId,
-            name = name,
-            host = resolvedHost,
-            details = details,
-            currentMembers = 1,
-            maxMembers = 6,
-            category = "GROUP",
-            hostUserId = hostId,
-            courseId = courseId,
-            courseCode = courseCode,
-            courseTitle = courseTitle,
-            status = "INACTIVE"
-        )
+    suspend fun fetchTasks(userId: String) = withContext(Dispatchers.IO) {
         try {
-            SupabaseClientProvider.postgrest
-                .from("study_group_members")
-                .insert(
-                    StudyGroupMember(
-                        groupId = groupId,
-                        userId = hostId
-                    )
-                )
-        } catch (_: Exception) {}
+            val allTasks = SupabaseClientProvider.postgrest.from("tasks")
+                .select()
+                .decodeList<TaskDto>()
 
-        _groups.add(0, g)
-        EduHubLocalStorage.saveGroups(_groups.toList())
-
-        val welcomeMsg = ChatMessage(
-            UUID.randomUUID().toString(), groupId, "System", "Info",
-            "Welcome to \"$name\"! Created by $resolvedHost.", "Just now", false
-        )
-        val msgList = _messages.getOrPut(groupId) { mutableListOf() }
-        msgList.add(welcomeMsg)
-        EduHubLocalStorage.saveChatMessages(groupId, msgList.toList())
-
-        try {
-            SupabaseClientProvider.postgrest.from("study_groups").upsert(
-                StudyGroupDto(
-                    id = groupId,
-                    name = name,
-                    host = resolvedHost,
-                    details = details,
-                    currentMembers = 1,
-                    maxMembers = 6,
-                    category = "GROUP",
-                    hostUserId = hostId,
-                    courseId = courseId,
-                    courseCode = courseCode,
-                    courseTitle = courseTitle,
-                    status = "INACTIVE"
-                )
-            )
-            Log.d("EduHubSupabase", "Successfully upserted study group '$name' into Supabase")
-        } catch (e: Exception) {
-            Log.w("EduHubSupabase", "Primary group upsert failed: ${e.message}. Retrying with base JSON...")
-            try {
-                val baseGroup = buildJsonObject {
-                    put("id", groupId)
-                    put("name", name)
-                    put("host", resolvedHost)
-                    put("details", details)
-                    put("current_members", 1)
-                    put("max_members", 6)
-                    put("category", "GROUP")
-                    if (courseId.isNotBlank()) put("course_id", courseId)
-                    if (courseCode.isNotBlank()) put("course_code", courseCode)
-                    if (courseTitle.isNotBlank()) put("course_title", courseTitle)
-                }
-                SupabaseClientProvider.postgrest.from("study_groups").upsert(baseGroup)
-            } catch (inner: Exception) {
-                Log.e("EduHubSupabase", "Failed to upsert study group into Supabase: ${inner.message}")
-            }
-        }
-
-        // Add creator as Host in group_members
-        if (hostUser != null) {
-            try {
-                SupabaseClientProvider.postgrest.from("group_members").upsert(
-                    GroupMemberDto(
-                        id = "${groupId}_${hostUser.id}",
-                        groupId = groupId,
-                        userId = hostUser.id,
-                        userName = resolvedHost,
-                        avatarUrl = hostUser.avatarUrl,
-                        role = "HOST"
-                    )
-                )
-            } catch (_: Exception) {}
-        }
-
-        try {
-            val welcomeJson = buildJsonObject {
-                put("id", welcomeMsg.id)
-                put("group_id", groupId)
-                put("sender_name", welcomeMsg.senderName)
-                put("sender_role", welcomeMsg.senderRole)
-                put("message", welcomeMsg.message)
-                put("timestamp", welcomeMsg.timestamp)
-                put("is_from_me", false)
-            }
-            SupabaseClientProvider.postgrest.from("chat_messages").insert(welcomeJson)
-        } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to insert initial chat message: ${e.message}")
-        }
-
-        g
-    }
-
-    suspend fun createGroup(name: String, details: String, hostUser: EduHubUser?): StudyGroup =
-        createGroup(name, details, null, hostUser)
-
-    fun getStudyRoomMembers(): List<StudyRoomMember> = _members.toList()
-
-    fun getChatMessages(groupId: String): List<ChatMessage> {
-        val inMem = _messages[groupId]
-        if (inMem != null && inMem.isNotEmpty()) return inMem.toList()
-        val local = EduHubLocalStorage.loadChatMessages(groupId)
-        if (local.isNotEmpty()) {
-            _messages[groupId] = local.toMutableList()
-            return local
-        }
-        return emptyList()
-    }
-
-    suspend fun fetchChatMessages(groupId: String, currentUserName: String = "Me"): List<ChatMessage> = withContext(Dispatchers.IO) {
-        val local = EduHubLocalStorage.loadChatMessages(groupId)
-        if (local.isNotEmpty()) {
-            _messages[groupId] = local.toMutableList()
-        }
-
-        val currentUser = AuthRepository.currentUser.value
-
-        try {
-            val dtoList = SupabaseClientProvider.postgrest.from("chat_messages")
-                .select {
-                    filter { eq("group_id", groupId) }
-                }
-                .decodeList<ChatMessageDto>()
-
-            Log.d("EduHubSupabase", "Fetched ${dtoList.size} messages for group $groupId from Supabase")
-
-            val remoteMapped = dtoList.map { dto ->
-                val isMe = (currentUser != null && dto.senderId.isNotBlank() && dto.senderId == currentUser.id) ||
-                        dto.senderName.equals(currentUserName, ignoreCase = true)
-                ChatMessage(
+            val entities = allTasks.filter { it.userId == userId }.map { dto ->
+                TaskEntity(
                     id = dto.id,
-                    groupId = dto.groupId,
-                    senderName = dto.senderName,
-                    senderRole = dto.senderRole,
-                    message = dto.message,
-                    timestamp = dto.timestamp,
-                    isFromMe = isMe,
-                    senderAvatarUrl = dto.senderAvatarUrl,
-                    senderId = dto.senderId
+                    userId = dto.userId,
+                    name = dto.name,
+                    date = dto.date,
+                    isCompleted = dto.isCompleted
                 )
             }
-
-            // Preserve any newly sent local messages until they sync with Supabase
-            val remoteIds = remoteMapped.map { it.id }.toSet()
-            val localPending = (_messages[groupId] ?: emptyList()).filter { !remoteIds.contains(it.id) }
-            val merged = (remoteMapped + localPending).distinctBy { it.id }
-
-            _messages[groupId] = merged.toMutableList()
-            EduHubLocalStorage.saveChatMessages(groupId, merged)
+            _tasks.value = entities
+            Log.d("CalendarRepo", "Fetched ${entities.size} tasks")
         } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to fetch chat_messages from Supabase: ${e.message}")
+            Log.e("CalendarRepo", "Failed to fetch tasks: ${e.message}")
+            _tasks.value = emptyList()
         }
-
-        _messages.getOrPut(groupId) { mutableListOf() }.toList()
     }
 
-    suspend fun sendMessage(
-        groupId: String,
-        text: String,
-        senderName: String = "Me",
-        senderRole: String = "Student",
-        customMsgId: String? = null
-    ): ChatMessage = withContext(Dispatchers.IO) {
-        val now = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
-        val msgId = customMsgId ?: UUID.randomUUID().toString()
-        val currentUser = AuthRepository.currentUser.value
-        val senderAvatarUrl = currentUser?.avatarUrl
-        val senderId = currentUser?.id ?: ""
-
-        val msg = ChatMessage(
-            id = msgId,
-            groupId = groupId,
-            senderName = senderName,
-            senderRole = senderRole,
-            message = text,
-            timestamp = now,
-            isFromMe = true,
-            senderAvatarUrl = senderAvatarUrl,
-            senderId = senderId
-        )
-
-        val list = _messages.getOrPut(groupId) { mutableListOf() }
-        if (list.none { it.id == msgId }) {
-            list.add(msg)
-        }
-        EduHubLocalStorage.saveChatMessages(groupId, list.toList())
-
-        // Insert into Supabase with fallback to ensure messages NEVER fail even if columns are missing
+    suspend fun fetchReminders(userId: String) = withContext(Dispatchers.IO) {
         try {
-            val fullMsg = buildJsonObject {
-                put("id", msgId)
-                put("group_id", groupId)
-                put("sender_name", senderName)
-                put("sender_role", senderRole)
-                put("message", text)
-                put("timestamp", now)
-                put("is_from_me", true)
-                if (!senderAvatarUrl.isNullOrBlank()) put("sender_avatar_url", senderAvatarUrl)
-                if (senderId.isNotBlank()) put("sender_id", senderId)
-            }
-            SupabaseClientProvider.postgrest.from("chat_messages").insert(fullMsg)
-            Log.d("EduHubSupabase", "✅ Sent chat message to Supabase for group $groupId")
-        } catch (e: Exception) {
-            Log.w("EduHubSupabase", "Insert with extra columns failed: ${e.message}. Retrying with base columns...")
-            try {
-                val baseMsg = buildJsonObject {
-                    put("id", msgId)
-                    put("group_id", groupId)
-                    put("sender_name", senderName)
-                    put("sender_role", senderRole)
-                    put("message", text)
-                    put("timestamp", now)
-                    put("is_from_me", true)
-                }
-                SupabaseClientProvider.postgrest.from("chat_messages").insert(baseMsg)
-                Log.d("EduHubSupabase", "✅ Sent base chat message to Supabase successfully")
-            } catch (inner: Exception) {
-                Log.e("EduHubSupabase", "Failed to send message to Supabase: ${inner.message}")
-            }
-        }
+            val allReminders = SupabaseClientProvider.postgrest.from("reminders")
+                .select()
+                .decodeList<ReminderDto>()
 
-        msg
-    }
-
-    suspend fun clearChatHistory(groupId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        _messages[groupId]?.clear()
-        EduHubLocalStorage.saveChatMessages(groupId, emptyList())
-        try {
-            SupabaseClientProvider.postgrest.from("chat_messages").delete {
-                filter { eq("group_id", groupId) }
-            }
-        } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to clear chat history in Supabase: ${e.message}")
-        }
-        Result.success(Unit)
-    }
-
-    suspend fun fetchGroupMembers(groupId: String, groupHostName: String = "", hostUserId: String = ""): List<GroupMember> = withContext(Dispatchers.IO) {
-        try {
-            val dtoList = SupabaseClientProvider.postgrest.from("group_members")
-                .select { filter { eq("group_id", groupId) } }
-                .decodeList<GroupMemberDto>()
-
-            if (dtoList.isNotEmpty()) {
-                return@withContext dtoList.map {
-                    GroupMember(
-                        id = it.id,
-                        groupId = it.groupId,
-                        userId = it.userId,
-                        userName = it.userName,
-                        userAvatarUrl = it.avatarUrl,
-                        role = it.role
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("EduHubSupabase", "Failed to fetch group_members from Supabase: ${e.message}")
-        }
-
-        // Fallback roster
-        val currentUser = AuthRepository.currentUser.value
-        val list = mutableListOf<GroupMember>()
-        if (groupHostName.isNotBlank() || hostUserId.isNotBlank()) {
-            list.add(
-                GroupMember(
-                    id = "${groupId}_host",
-                    groupId = groupId,
-                    userId = hostUserId,
-                    userName = if (groupHostName.isNotBlank()) groupHostName else "Host",
-                    userAvatarUrl = if (currentUser?.id == hostUserId) currentUser.avatarUrl else null,
-                    role = "HOST"
+            val entities = allReminders.filter { it.userId == userId }.map { dto ->
+                ReminderEntity(
+                    id = dto.id,
+                    userId = dto.userId,
+                    name = dto.name,
+                    date = dto.date,
+                    time = dto.time
                 )
+            }
+            _reminders.value = entities
+            Log.d("CalendarRepo", "Fetched ${entities.size} reminders")
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to fetch reminders: ${e.message}")
+            _reminders.value = emptyList()
+        }
+    }
+
+    suspend fun saveExam(exam: ExamEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val dto = ExamDto(
+                id = exam.id,
+                userId = exam.userId,
+                name = exam.name,
+                date = exam.date
             )
+            SupabaseClientProvider.postgrest.from("exams").insert(dto)
+            _exams.value = _exams.value + exam
+            Log.d("CalendarRepo", "Saved exam: ${exam.name}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to save exam: ${e.message}")
+            Result.failure(Exception("Failed to save exam: ${e.message}"))
         }
-        if (currentUser != null && currentUser.id != hostUserId && _joinedGroupIds.contains(groupId)) {
-            list.add(
-                GroupMember(
-                    id = "${groupId}_${currentUser.id}",
-                    groupId = groupId,
-                    userId = currentUser.id,
-                    userName = currentUser.name,
-                    userAvatarUrl = currentUser.avatarUrl,
-                    role = "MEMBER"
-                )
-            )
-        }
-        if (list.isNotEmpty()) {
-            for (m in list) {
-                try {
-                    SupabaseClientProvider.postgrest.from("group_members").upsert(
-                        GroupMemberDto(
-                            id = m.id,
-                            groupId = m.groupId,
-                            userId = m.userId,
-                            userName = m.userName,
-                            avatarUrl = m.userAvatarUrl,
-                            role = m.role
-                        )
-                    )
-                } catch (_: Exception) {}
-            }
-        }
-        list
     }
 
-    suspend fun setMemberRole(groupId: String, targetUserId: String, newRole: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun saveTask(task: TaskEntity): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            SupabaseClientProvider.postgrest.from("group_members").update(
-                { set("role", newRole) }
-            ) {
-                filter {
-                    eq("group_id", groupId)
-                    eq("user_id", targetUserId)
+            val dto = TaskDto(
+                id = task.id,
+                userId = task.userId,
+                name = task.name,
+                date = task.date,
+                isCompleted = task.isCompleted
+            )
+            SupabaseClientProvider.postgrest.from("tasks").insert(dto)
+            _tasks.value = _tasks.value + task
+            Log.d("CalendarRepo", "Saved task: ${task.name}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to save task: ${e.message}")
+            Result.failure(Exception("Failed to save task: ${e.message}"))
+        }
+    }
+
+    suspend fun saveReminder(reminder: ReminderEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val dto = ReminderDto(
+                id = reminder.id,
+                userId = reminder.userId,
+                name = reminder.name,
+                date = reminder.date,
+                time = reminder.time
+            )
+            SupabaseClientProvider.postgrest.from("reminders").insert(dto)
+            _reminders.value = _reminders.value + reminder
+            Log.d("CalendarRepo", "Saved reminder: ${reminder.name}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to save reminder: ${e.message}")
+            Result.failure(Exception("Failed to save reminder: ${e.message}"))
+        }
+    }
+
+    suspend fun updateTask(task: TaskEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("tasks")
+                .update(
+                    mapOf("is_completed" to task.isCompleted)
+                ) {
+                    filter { eq("id", task.id) }
                 }
+            _tasks.value = _tasks.value.map {
+                if (it.id == task.id) task else it
             }
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to update member role: ${e.message}")
-            Result.failure(e)
+            Log.e("CalendarRepo", "Failed to update task: ${e.message}")
+            Result.failure(Exception("Failed to update task: ${e.message}"))
         }
     }
 
-    suspend fun kickMember(groupId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteExam(id: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            SupabaseClientProvider.postgrest.from("group_members").delete {
-                filter {
-                    eq("group_id", groupId)
-                    eq("user_id", targetUserId)
-                }
+            SupabaseClientProvider.postgrest.from("exams").delete {
+                filter { eq("id", id) }
             }
+            _exams.value = _exams.value.filter { it.id != id }
+            Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to delete from group_members: ${e.message}")
+            Log.e("CalendarRepo", "Failed to delete exam: ${e.message}")
+            Result.failure(Exception("Failed to delete exam: ${e.message}"))
         }
-
-        val i = _groups.indexOfFirst { it.id == groupId }
-        if (i != -1) {
-            val updatedMembers = maxOf(1, _groups[i].currentMembers - 1)
-            _groups[i] = _groups[i].copy(currentMembers = updatedMembers)
-            EduHubLocalStorage.saveGroups(_groups.toList())
-
-            try {
-                SupabaseClientProvider.postgrest.from("study_groups").update(
-                    { set("current_members", updatedMembers) }
-                ) { filter { eq("id", groupId) } }
-            } catch (_: Exception) {}
-        }
-
-        val currentUser = AuthRepository.currentUser.value
-        if (currentUser?.id == targetUserId) {
-            _joinedGroupIds.remove(groupId)
-            EduHubLocalStorage.saveJoinedGroupIds(targetUserId, _joinedGroupIds)
-        }
-
-        Result.success(Unit)
     }
 
-    suspend fun leaveGroup(groupId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        val currentUser = AuthRepository.currentUser.value ?: return@withContext Result.failure(Exception("Not signed in"))
-        kickMember(groupId, currentUser.id)
-    }
-
-    suspend fun joinGroupByCodeOrLink(rawInput: String): Result<StudyGroup> = withContext(Dispatchers.IO) {
-        val cleanInput = rawInput.trim()
-        val cleanId = when {
-            cleanInput.contains("join/") -> cleanInput.substringAfter("join/").substringBefore("?").substringBefore("/").trim()
-            cleanInput.contains("groupId=") -> cleanInput.substringAfter("groupId=").substringBefore("&").trim()
-            else -> cleanInput
-        }
-        if (cleanId.isBlank()) return@withContext Result.failure(Exception("Please enter a valid Group Code or Invitation Link."))
-
-        var group = _groups.find { it.id.equals(cleanId, ignoreCase = true) }
-        if (group == null) {
-            try {
-                val dto = SupabaseClientProvider.postgrest.from("study_groups")
-                    .select { filter { eq("id", cleanId) } }
-                    .decodeSingleOrNull<StudyGroupDto>()
-                if (dto != null) {
-                    group = StudyGroup(
-                        id = dto.id,
-                        name = dto.name,
-                        host = dto.host,
-                        details = dto.details,
-                        currentMembers = dto.currentMembers,
-                        maxMembers = dto.maxMembers,
-                        category = dto.category,
-                        hostUserId = dto.hostUserId,
-                        isJoined = true
-                    )
-                    _groups.add(0, group)
-                    EduHubLocalStorage.saveGroups(_groups.toList())
-                }
-            } catch (e: Exception) {
-                Log.e("EduHubSupabase", "Failed to lookup group by id $cleanId: ${e.message}")
+    suspend fun deleteTask(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("tasks").delete {
+                filter { eq("id", id) }
             }
+            _tasks.value = _tasks.value.filter { it.id != id }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to delete task: ${e.message}")
+            Result.failure(Exception("Failed to delete task: ${e.message}"))
         }
+    }
 
-        if (group == null) {
-            return@withContext Result.failure(Exception("Study group not found. Please check the code or link."))
+    suspend fun deleteReminder(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("reminders").delete {
+                filter { eq("id", id) }
+            }
+            _reminders.value = _reminders.value.filter { it.id != id }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to delete reminder: ${e.message}")
+            Result.failure(Exception("Failed to delete reminder: ${e.message}"))
         }
+    }
 
-        joinGroup(group.id)
-        Result.success(group)
+    suspend fun clearAll(userId: String) = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("exams").delete {
+                filter { eq("user_id", userId) }
+            }
+            SupabaseClientProvider.postgrest.from("tasks").delete {
+                filter { eq("user_id", userId) }
+            }
+            SupabaseClientProvider.postgrest.from("reminders").delete {
+                filter { eq("user_id", userId) }
+            }
+            _exams.value = emptyList()
+            _tasks.value = emptyList()
+            _reminders.value = emptyList()
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to clear data: ${e.message}")
+        }
     }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Past Year Paper Repository (Lecturer Upload & Full Cloud Sync)
+// 6. Past Year Paper Repository (Lecturer Upload & Full Cloud Sync)
 // ─────────────────────────────────────────────────────────────────────────────
 object PastYearRepository {
     private val _papers = mutableListOf<PastYearPaper>()
@@ -2118,7 +2296,6 @@ object PastYearRepository {
         if (local.isNotEmpty()) {
             _papers.addAll(local)
         } else {
-            // Sample exam papers
             _papers.addAll(
                 listOf(
                     PastYearPaper(

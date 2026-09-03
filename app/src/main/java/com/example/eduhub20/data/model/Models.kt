@@ -1,5 +1,6 @@
 package com.example.eduhub20.data.model
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 enum class UserRole {
@@ -173,7 +174,6 @@ data class PastYearPaper(
     val pdfUrl: String = ""
 )
 
-// ✅ Add this - Campus data class
 @Serializable
 data class Campus(
     val id: String,
@@ -182,14 +182,45 @@ data class Campus(
     val iconRes: Int = 0  // Optional: for different campus icons
 )
 
-// ✅ Add this - Campus list
+@Serializable
+data class ExamEntity(
+    val id: String,
+    val userId: String,
+    val name: String,
+    val date: Long,
+    @SerialName("created_at")
+    val createdAt: String = ""
+)
+
+@Serializable
+data class TaskEntity(
+    val id: String,
+    val userId: String,
+    val name: String,
+    val date: Long,
+    @SerialName("is_completed")
+    val isCompleted: Boolean = false,
+    @SerialName("created_at")
+    val createdAt: String = ""
+)
+
+@Serializable
+data class ReminderEntity(
+    val id: String,
+    val userId: String,
+    val name: String,
+    val date: Long,
+    val time: String,
+    @SerialName("created_at")
+    val createdAt: String = ""
+)
 object CampusData {
     val campusList = listOf(
         Campus("campus_1", "Kuala Lumpur", "Kuala Lumpur"),
-        Campus("campus_2", "Selangor", "Petaling Jaya"),
-        Campus("campus_3", "Penang", "George Town"),
-        Campus("campus_4", "Johor", "Johor Bahru"),
-        Campus("campus_5", "Sarawak", "Kuching"),
+        Campus("campus_2", "Perak", "Kampar"),
+        Campus("campus_3", "Penang", "Tanjong Bungah"),
+        Campus("campus_4", "Johor", "Segamat"),
+        Campus("campus_5", "Pahang", "Kuantan"),
         Campus("campus_6", "Sabah", "Kota Kinabalu")
     )
 

@@ -271,9 +271,6 @@ fun EduHubNavHost(
                     groupId = groupId,
                     groupName = groupName,
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToGroupInfo = { gid ->
-                        navController.navigate(Screen.GroupInfo.createRoute(gid))
-                    }
                 )
             }
 
