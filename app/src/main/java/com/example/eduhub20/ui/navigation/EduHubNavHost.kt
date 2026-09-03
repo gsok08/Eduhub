@@ -5,6 +5,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -43,14 +44,31 @@ import com.example.eduhub20.ui.course.CourseDetailScreen
 import com.example.eduhub20.ui.group.ChatRoomScreen
 import com.example.eduhub20.ui.group.StudyGroupScreen
 import com.example.eduhub20.ui.home.HomeScreen
-import com.example.eduhub20.ui.lecturer.LecturerDashboardScreen
 import com.example.eduhub20.ui.note.NoteDetailAiScreen
 import com.example.eduhub20.ui.note.NoteQuizScreen
 import com.example.eduhub20.ui.pastyear.PastYearPaperScreen
 import com.example.eduhub20.ui.profile.ProfileScreen
 import com.example.eduhub20.ui.quiz.QuizTakingScreen
 import com.example.eduhub20.ui.theme.EduHubPrimary
-
+import com.example.eduhub20.ui.lecturer.home.LecturerHomeScreen
+import com.example.eduhub20.ui.lecturer.course.CreateCourseScreen
+import com.example.eduhub20.ui.lecturer.course.CourseMainScreen
+import com.example.eduhub20.ui.lecturer.materials.AnnouncementScreen
+import com.example.eduhub20.ui.lecturer.materials.MaterialsScreen
+import com.example.eduhub20.ui.lecturer.materials.UploadLectureNoteScreen
+import com.example.eduhub20.ui.lecturer.course.StudentsScreen
+import com.example.eduhub20.ui.lecturer.profile.LecturerProfileScreen
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import com.example.eduhub20.ui.lecturer.components.LecturerBottomBar
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.example.eduhub20.ui.lecturer.course.LecturerCoursesScreen
+import com.example.eduhub20.ui.lecturer.course.LecturerCourseMode
+import com.example.eduhub20.ui.lecturer.materials.PastYearPaperUploadScreen
+import com.example.eduhub20.data.repository.CourseRepository
+import com.example.eduhub20.ui.lecturer.papers.LecturerPapersScreen
 @Composable
 fun EduHubNavHost(
     currentUser: EduHubUser?,
@@ -139,7 +157,11 @@ fun EduHubNavHost(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Home.route,
+            startDestination =   if (currentUser?.role == UserRole.LECTURER) {
+                Screen.LecturerHome.route
+            } else {
+                Screen.Home.route
+            },
             enterTransition = { fadeIn(animationSpec = tween(160)) },
             exitTransition = { fadeOut(animationSpec = tween(160)) },
             popEnterTransition = { fadeIn(animationSpec = tween(160)) },
@@ -154,7 +176,7 @@ fun EduHubNavHost(
                         navController.navigate(Screen.CourseDetail.createRoute(courseId))
                     },
                     onNavigateToLecturerPortal = {
-                        navController.navigate(Screen.LecturerDashboard.route)
+                        navController.navigate(Screen.LecturerHome.route)
                     },
                     onNavigateToProfile = {
                         navController.navigate(Screen.Profile.route)
@@ -198,13 +220,77 @@ fun EduHubNavHost(
             }
 
             // Profile Screen
-            composable(Screen.Profile.route) {
-                ProfileScreen(
-                    currentUser = currentUser,
-                    onUpdateName = onUpdateName,
-                    onNavigateBack = { navController.popBackStack() },
-                    onSignOut = onSignOut
-                )
+            // Profile Screen
+            composable(
+                Screen.Profile.route
+            ) {
+
+                if (
+                    currentUser?.role ==
+                    UserRole.LECTURER
+                ) {
+
+                    Scaffold(
+                        bottomBar = {
+
+                            LecturerBottomBar(
+                                selectedItem = 3,
+
+                                onItemSelected = { index ->
+
+                                    when (index) {
+
+                                        0 -> {
+                                            navController.navigate(
+                                                Screen.LecturerHome.route
+                                            )
+                                        }
+
+                                        1 -> {
+                                            navController.navigate(
+                                                Screen.LecturerCourses.route
+                                            )
+                                        }
+
+                                        2 -> {
+                                            navController.navigate(
+                                                Screen.LecturerPapers.route
+                                            )
+                                        }
+
+                                        3 -> {
+                                            // Already on Profile
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    ) { paddingValues ->
+
+                        LecturerProfileScreen(
+                            onSignOut = onSignOut,
+
+                            modifier = Modifier.padding(
+                                paddingValues
+                            )
+                        )
+                    }
+
+                } else {
+
+                    // Student profile stays unchanged
+                    ProfileScreen(
+                        currentUser = currentUser,
+
+                        onUpdateName = onUpdateName,
+
+                        onNavigateBack = {
+                            navController.popBackStack()
+                        },
+
+                        onSignOut = onSignOut
+                    )
+                }
             }
 
             // Course Detail Flow
@@ -335,12 +421,449 @@ fun EduHubNavHost(
             }
 
             // Lecturer Dashboard Screen
-            composable(Screen.LecturerDashboard.route) {
-                LecturerDashboardScreen(
-                    onNavigateBack = {
+            // Lecturer Home Screen
+            composable(Screen.LecturerHome.route) {
+                var selectedItem by remember {
+                    mutableIntStateOf(0)
+                }
+                Scaffold(
+                    bottomBar = {
+                        LecturerBottomBar(
+                            selectedItem = selectedItem,
+                            onItemSelected = { index ->
+                                selectedItem = index
+                                when(index) {
+                                    0 -> {
+                                        navController.navigate(
+                                            Screen.LecturerHome.route
+                                        )
+                                    }
+                                    1 -> {
+                                        // Course page
+                                        navController.navigate(
+                                            Screen.LecturerCourses.route
+                                        )
+                                    }
+                                    2 -> {
+                                        // Past year paper
+                                        navController.navigate(
+                                            Screen.LecturerPapers.route
+                                        )
+                                    }
+                                    3 -> {
+                                        navController.navigate(
+                                            Screen.Profile.route
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                ) { paddingValues ->
+                    LecturerHomeScreen(
+                        lecturerName = currentUser?.name ?: "Lecturer",
+
+                        onCourseClick = { courseId ->
+
+                            navController.navigate(
+                                Screen.CourseMain.createRoute(
+                                    courseId = courseId,
+                                    mode = "view"
+                                )
+                            )
+
+                        },
+                        modifier = Modifier.padding(paddingValues)
+                    )
+
+                }
+            }
+
+            composable(Screen.CreateCourse.route) {
+                CreateCourseScreen(
+                    lecturerName = currentUser?.name ?: "Lecturer",
+                    onBack = {
                         navController.popBackStack()
                     },
-                    onSignOut = onSignOut
+                    onCreated = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            composable(
+                Screen.LecturerCourses.route
+            ) {
+
+                Scaffold(
+                    bottomBar = {
+
+                        LecturerBottomBar(
+                            selectedItem = 1,
+
+                            onItemSelected = { index ->
+
+                                when (index) {
+
+                                    0 -> {
+                                        navController.navigate(
+                                            Screen.LecturerHome.route
+                                        )
+                                    }
+
+                                    1 -> {
+                                        // Already on Courses
+                                    }
+
+                                    2 -> {
+                                        navController.navigate(
+                                            Screen.LecturerPapers.route
+                                        )
+                                    }
+
+                                    3 -> {
+                                        navController.navigate(
+                                            Screen.Profile.route
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                ) { paddingValues ->
+                    LecturerCoursesScreen(
+
+                        onCourseClick = { courseId ->
+
+                            navController.navigate(
+                                Screen.CourseMain.createRoute(
+                                    courseId = courseId,
+                                    mode = "manage"
+                                )
+                            )
+                        },
+
+                        onCreateCourse = {
+
+                            navController.navigate(
+                                Screen.CreateCourse.route
+                            )
+                        },
+
+                        modifier = Modifier.padding(
+                            paddingValues
+                        )
+                    )
+                }
+            }
+
+            composable(
+                Screen.LecturerPapers.route
+            ) {
+
+                Scaffold(
+                    bottomBar = {
+
+                        LecturerBottomBar(
+                            selectedItem = 2,
+
+                            onItemSelected = { index ->
+
+                                when (index) {
+
+                                    0 -> {
+                                        navController.navigate(
+                                            Screen.LecturerHome.route
+                                        )
+                                    }
+
+                                    1 -> {
+                                        navController.navigate(
+                                            Screen.LecturerCourses.route
+                                        )
+                                    }
+
+                                    2 -> {
+                                        // Already on Papers
+                                    }
+
+                                    3 -> {
+                                        navController.navigate(
+                                            Screen.Profile.route
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                ) { paddingValues ->
+
+                    LecturerPapersScreen(
+                        modifier =
+                            Modifier.padding(
+                                paddingValues
+                            )
+                    )
+                }
+            }
+
+            composable(
+                route = Screen.CourseMain.route,
+
+                arguments = listOf(
+
+                    navArgument("courseId") {
+                        type = NavType.StringType
+                    },
+
+                    navArgument("mode") {
+                        type = NavType.StringType
+                    }
+                )
+            ) { backStackEntry ->
+
+                val courseId =
+                    backStackEntry.arguments
+                        ?.getString("courseId")
+                        ?: ""
+
+                val modeString =
+                    backStackEntry.arguments
+                        ?.getString("mode")
+                        ?: "view"
+
+                val courseMode =
+                    LecturerCourseMode.fromString(
+                        modeString
+                    )
+
+                Scaffold(
+                    bottomBar = {
+
+                        LecturerBottomBar(
+
+                            selectedItem =
+                                if (
+                                    courseMode ==
+                                    LecturerCourseMode.MANAGE
+                                ) {
+                                    1
+                                } else {
+                                    0
+                                },
+
+                            onItemSelected = { index ->
+
+                                when (index) {
+
+                                    0 -> {
+                                        navController.navigate(
+                                            Screen.LecturerHome.route
+                                        )
+                                    }
+
+                                    1 -> {
+                                        navController.navigate(
+                                            Screen.LecturerCourses.route
+                                        )
+                                    }
+
+                                    2 -> {
+                                        navController.navigate(
+                                            Screen.LecturerPapers.route
+                                        )
+                                    }
+
+                                    3 -> {
+                                        navController.navigate(
+                                            Screen.Profile.route
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                ) { paddingValues ->
+
+                    Box(
+                        modifier =
+                            Modifier.padding(paddingValues)
+                    ) {
+
+                        CourseMainScreen(
+                            courseId = courseId,
+                            mode = courseMode,
+
+                            onBack = {
+                                navController.popBackStack()
+                            },
+
+                            onAddAnnouncement = {
+
+                                navController.navigate(
+                                    Screen.Announcement
+                                        .createRoute(courseId)
+                                )
+                            },
+
+                            onUploadNote = { courseCode ->
+
+                                navController.navigate(
+                                    Screen.UploadLectureNote
+                                        .createRoute(courseCode)
+                                )
+                            },
+
+                            onUploadPaper = { courseCode ->
+
+                                navController.navigate(
+                                    Screen.PastYearPaperUpload
+                                        .createRoute(courseCode)
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+
+            composable(
+                route = Screen.Announcement.route,
+                arguments = listOf(
+                    navArgument("courseId") {
+                        type = NavType.StringType
+                    }
+                )
+            ) { backStackEntry ->
+
+                val courseId =
+                    backStackEntry.arguments
+                        ?.getString("courseId")
+                        ?: ""
+
+                AnnouncementScreen(
+                    courseId = courseId,
+
+                    lecturerName =
+                        currentUser?.name
+                            ?: "Lecturer",
+
+                    onBack = {
+                        navController.popBackStack()
+                    },
+
+
+                    onPublished = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.Materials.route,
+                arguments = listOf(
+                    navArgument("courseId") {
+                        type = NavType.StringType
+                    }
+                )
+            ){
+                val courseId =
+                    it.arguments?.getString("courseId") ?: ""
+                MaterialsScreen(
+                    courseCode = courseId,
+                    onUploadNote = {
+                        navController.navigate(
+                            Screen.UploadLectureNote.createRoute(courseId)
+                        )
+
+                    },
+                    onOpenPaper = {
+                        navController.navigate(
+                            Screen.PastYearPaperUpload.createRoute(courseId)
+                        )
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.UploadLectureNote.route,
+                arguments = listOf(
+                    navArgument("courseId") {
+                        type = NavType.StringType
+                    }
+                )
+            ) { backStackEntry ->
+
+                // This value may be a course ID or course code
+                val courseKey =
+                    backStackEntry.arguments
+                        ?.getString("courseId")
+                        ?: ""
+
+                // Find the actual Course object
+                val course =
+                    CourseRepository.getCourseById(
+                        courseKey
+                    )
+
+                UploadLectureNoteScreen(
+                    // Example: AMIT3353
+                    courseCode =
+                        course?.code ?: courseKey,
+
+                    // Example: Mobile Application Development
+                    courseTitle =
+                        course?.title ?: "",
+
+                    onBack = {
+                        navController.popBackStack()
+                    },
+
+                    onUploaded = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.PastYearPaperUpload.route,
+
+                arguments = listOf(
+                    navArgument("courseId") {
+                        type = NavType.StringType
+                    }
+                )
+            ) { backStackEntry ->
+
+                val courseCode =
+                    backStackEntry.arguments
+                        ?.getString("courseId")
+                        ?: ""
+
+                PastYearPaperUploadScreen(
+                    courseCode = courseCode,
+
+                    onBack = {
+                        navController.popBackStack()
+                    },
+
+                    onUploaded = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.Students.route,
+                arguments = listOf(
+                    navArgument("courseId") {
+                        type = NavType.StringType
+                    }
+                )
+            ){
+                val courseId =
+                    it.arguments?.getString("courseId") ?: ""
+                StudentsScreen(
+                    courseId = courseId
                 )
             }
         }
