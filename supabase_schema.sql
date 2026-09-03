@@ -3,17 +3,21 @@
 -- Run this entire script in your Supabase Dashboard -> SQL Editor -> Run (▶️)
 -- =============================================================================
 
--- 1. Profiles Table (Tracks User Display Name, Email, Role, and Active Single-Device Session)
+-- 1. Profiles Table (Tracks User Display Name, Email, Role, Avatar, Campus, and Single-Device Session)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
     email TEXT,
     role TEXT DEFAULT 'STUDENT', -- 'STUDENT' or 'LECTURER'
     active_session_id TEXT DEFAULT '',
+    avatar_url TEXT,
+    campus TEXT,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS active_session_id TEXT DEFAULT '';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS campus TEXT;
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on profiles" ON public.profiles;
@@ -137,13 +141,20 @@ ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on chat_messages" ON public.chat_messages;
 CREATE POLICY "Public full access on chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
 
--- 9. Supabase Storage Bucket for Lecture PDFs
+-- 9. Supabase Storage Buckets (Lecture PDFs & User Avatars)
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('lecture-notes', 'lecture-notes', true)
 ON CONFLICT (id) DO NOTHING;
 
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
 DROP POLICY IF EXISTS "Public Access to lecture-notes bucket" ON storage.objects;
 CREATE POLICY "Public Access to lecture-notes bucket" ON storage.objects FOR ALL USING (bucket_id = 'lecture-notes') WITH CHECK (bucket_id = 'lecture-notes');
+
+DROP POLICY IF EXISTS "Public Access to avatars bucket" ON storage.objects;
+CREATE POLICY "Public Access to avatars bucket" ON storage.objects FOR ALL USING (bucket_id = 'avatars') WITH CHECK (bucket_id = 'avatars');
 
 -- 10. Grant full API permissions to public schema tables
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
