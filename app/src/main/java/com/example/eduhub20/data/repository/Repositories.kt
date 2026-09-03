@@ -1478,6 +1478,7 @@ object StudyGroupRepository {
         _joinedGroupIds.clear()
         _joinedGroupIds.addAll(EduHubLocalStorage.loadJoinedGroupIds(user.id))
         _groups.clear()
+        _messages.clear()
         val local = EduHubLocalStorage.loadGroups()
         if (local.isNotEmpty()) {
             _groups.addAll(local.map { g ->
@@ -1491,6 +1492,7 @@ object StudyGroupRepository {
         _joinedGroupIds.clear()
         _groups.clear()
         _messages.clear()
+        EduHubLocalStorage.clearAllChatMessages()
     }
 
     fun getGroups(): List<StudyGroup> {
@@ -1696,8 +1698,8 @@ object StudyGroupRepository {
             host = resolvedHost,
             details = details,
             currentMembers = 1,
-            maxMembers = 6,
             isJoined = true,
+            maxMembers = 6,
             category = "GROUP",
             hostUserId = hostId,
             courseId = courseId,
@@ -1806,14 +1808,24 @@ object StudyGroupRepository {
     fun getStudyRoomMembers(): List<StudyRoomMember> = _members.toList()
 
     fun getChatMessages(groupId: String): List<ChatMessage> {
+        val currentUser = AuthRepository.currentUser.value
         val inMem = _messages[groupId]
-        if (inMem != null && inMem.isNotEmpty()) return inMem.toList()
-        val local = EduHubLocalStorage.loadChatMessages(groupId)
-        if (local.isNotEmpty()) {
-            _messages[groupId] = local.toMutableList()
-            return local
+        val raw = if (inMem != null && inMem.isNotEmpty()) {
+            inMem.toList()
+        } else {
+            val local = EduHubLocalStorage.loadChatMessages(groupId)
+            if (local.isNotEmpty()) {
+                _messages[groupId] = local.toMutableList()
+                local
+            } else {
+                emptyList()
+            }
         }
-        return emptyList()
+        return raw.map { msg ->
+            val isMe = (currentUser != null && msg.senderId.isNotBlank() && msg.senderId == currentUser.id) ||
+                    (currentUser != null && msg.senderName.equals(currentUser.name, ignoreCase = true))
+            msg.copy(isFromMe = isMe)
+        }
     }
 
     suspend fun fetchChatMessages(groupId: String, currentUserName: String = "Me"): List<ChatMessage> = withContext(Dispatchers.IO) {
@@ -1835,6 +1847,7 @@ object StudyGroupRepository {
 
             val remoteMapped = dtoList.map { dto ->
                 val isMe = (currentUser != null && dto.senderId.isNotBlank() && dto.senderId == currentUser.id) ||
+                        (currentUser != null && dto.senderName.equals(currentUser.name, ignoreCase = true)) ||
                         dto.senderName.equals(currentUserName, ignoreCase = true)
                 ChatMessage(
                     id = dto.id,
@@ -1851,7 +1864,14 @@ object StudyGroupRepository {
 
             // Preserve any newly sent local messages until they sync with Supabase
             val remoteIds = remoteMapped.map { it.id }.toSet()
-            val localPending = (_messages[groupId] ?: emptyList()).filter { !remoteIds.contains(it.id) }
+            val localPending = (_messages[groupId] ?: emptyList())
+                .filter { !remoteIds.contains(it.id) }
+                .map { msg ->
+                    val isMe = (currentUser != null && msg.senderId.isNotBlank() && msg.senderId == currentUser.id) ||
+                            (currentUser != null && msg.senderName.equals(currentUser.name, ignoreCase = true)) ||
+                            msg.senderName.equals(currentUserName, ignoreCase = true)
+                    msg.copy(isFromMe = isMe)
+                }
             val merged = (remoteMapped + localPending).distinctBy { it.id }
 
             _messages[groupId] = merged.toMutableList()
@@ -1860,7 +1880,12 @@ object StudyGroupRepository {
             Log.e("EduHubSupabase", "Failed to fetch chat_messages from Supabase: ${e.message}")
         }
 
-        _messages.getOrPut(groupId) { mutableListOf() }.toList()
+        _messages.getOrPut(groupId) { mutableListOf() }.map { msg ->
+            val isMe = (currentUser != null && msg.senderId.isNotBlank() && msg.senderId == currentUser.id) ||
+                    (currentUser != null && msg.senderName.equals(currentUser.name, ignoreCase = true)) ||
+                    msg.senderName.equals(currentUserName, ignoreCase = true)
+            msg.copy(isFromMe = isMe)
+        }
     }
 
     suspend fun sendMessage(

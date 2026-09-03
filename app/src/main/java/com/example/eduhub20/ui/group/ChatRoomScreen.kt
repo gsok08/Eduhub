@@ -50,7 +50,7 @@ fun ChatRoomScreen(
     val groupHostName = group?.host ?: ""
     val hostUserId = group?.hostUserId ?: ""
 
-    val messages = remember(groupId) {
+    val messages = remember(groupId, currentUser?.id) {
         mutableStateListOf(*StudyGroupRepository.getChatMessages(groupId).toTypedArray())
     }
     val members = remember(groupId) { mutableStateListOf<GroupMember>() }
@@ -82,7 +82,7 @@ fun ChatRoomScreen(
     }
 
     // Real-time live polling from Supabase (every 2.5 seconds)
-    LaunchedEffect(groupId) {
+    LaunchedEffect(groupId, currentUser?.id) {
         while (isActive) {
             val allGroups = StudyGroupRepository.fetchGroupsFromSupabase()
             val groupStillExists = allGroups.any { it.id == groupId }
@@ -93,9 +93,7 @@ fun ChatRoomScreen(
             }
 
             val remoteMessages = StudyGroupRepository.fetchChatMessages(groupId, currentUserName)
-            val currentIds = messages.map { it.id }
-            val remoteIds = remoteMessages.map { it.id }
-            if (currentIds != remoteIds) {
+            if (messages.toList() != remoteMessages) {
                 val oldSize = messages.size
                 messages.clear()
                 messages.addAll(remoteMessages)

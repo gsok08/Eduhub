@@ -241,6 +241,19 @@ object EduHubLocalStorage {
         }
     }
 
+    fun clearAllChatMessages() {
+        try {
+            val allKeys = prefs?.all?.keys ?: return
+            val chatKeys = allKeys.filter { it.startsWith(PREFIX_CHAT_MESSAGES) }
+            prefs?.edit {
+                for (k in chatKeys) {
+                    remove(k)
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     // ── PDF Slide Annotations Persistence ────────────────────────────────
     fun savePdfAnnotations(documentKey: String, data: PdfAnnotationData) {
         val safeKey = PREFIX_PDF_ANNOTATIONS + documentKey.hashCode().toString()
