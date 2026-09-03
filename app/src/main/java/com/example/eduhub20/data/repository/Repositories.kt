@@ -1586,6 +1586,14 @@ object StudyGroupRepository {
 
             val remoteIds = remoteMapped.map { it.id }.toSet()
 
+            val enrolledCourseIds = CourseRepository.getEnrolledCourses()
+                .map { it.id }
+                .toSet()
+
+            val filteredGroups = remoteMapped.filter { group ->
+                group.courseId.isNotBlank() && group.courseId in enrolledCourseIds
+            }
+
             // Purge deleted groups and their chat messages
             _joinedGroupIds.retainAll(remoteIds)
             val deletedGroups = _groups.filter { !remoteIds.contains(it.id) }
@@ -1595,8 +1603,8 @@ object StudyGroupRepository {
             }
 
             _groups.clear()
-            _groups.addAll(remoteMapped)
-            EduHubLocalStorage.saveGroups(remoteMapped)
+            _groups.addAll(filteredGroups)
+            EduHubLocalStorage.saveGroups(filteredGroups)
             if (currentUser != null) {
                 EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
             }

@@ -91,6 +91,8 @@ fun StudyGroupScreen(
     LaunchedEffect(currentUser?.id) {
         CourseRepository.fetchCoursesFromSupabase()
         courses = CourseRepository.getEnrolledCourses()
+        StudyGroupRepository.fetchGroupsFromSupabase()
+
     }
 
     // Recommended groups
