@@ -104,13 +104,19 @@ data class StudyGroup(
     val maxMembers: Int,
     val isJoined: Boolean = false,
     val category: String = "GROUP",
-    val hostUserId: String = ""
+    val hostUserId: String = "",
+    val courseId: String = "",
+    val courseCode: String = "",
+    val courseTitle: String = "",
+    val status: String = "INACTIVE"
 )
 
 @Serializable
-data class StudyRoomMember(
-    val name: String,
-    val currentStatus: String
+data class StudyGroupMember(
+    val id: String = "",
+    val groupId: String,
+    val userId: String,
+    val joinedAt: String = ""
 )
 
 @Serializable

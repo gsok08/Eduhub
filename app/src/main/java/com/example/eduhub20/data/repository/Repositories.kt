@@ -119,11 +119,39 @@ data class StudyGroupDto(
     val details: String,
     @SerialName("current_members")
     val currentMembers: Int = 1,
+
     @SerialName("max_members")
     val maxMembers: Int = 6,
+
     val category: String = "GROUP",
+
     @SerialName("host_user_id")
-    val hostUserId: String = ""
+    val hostUserId: String = "",
+
+    @SerialName("course_id")
+    val courseId: String = "",
+
+    @SerialName("course_code")
+    val courseCode: String = "",
+
+    @SerialName("course_title")
+    val courseTitle: String = "",
+
+    val status: String = "INACTIVE"
+)
+
+@Serializable
+data class StudyRoomMember(
+    val id: String? = null,
+
+    @SerialName("group_id")
+    val groupId: String,
+
+    @SerialName("user_id")
+    val userId: String,
+
+    @SerialName("joined_at")
+    val joinedAt: String? = null
 )
 
 @Serializable
@@ -1018,22 +1046,47 @@ object StudyGroupRepository {
     suspend fun fetchGroupsFromSupabase(): List<StudyGroup> = withContext(Dispatchers.IO) {
         val currentUser = AuthRepository.currentUser.value
         val userId = currentUser?.id ?: "guest"
+
         _joinedGroupIds.clear()
-        _joinedGroupIds.addAll(EduHubLocalStorage.loadJoinedGroupIds(userId))
+        _joinedGroupIds.addAll(
+            EduHubLocalStorage.loadJoinedGroupIds(userId)
+        )
 
         try {
-            val dtoList = SupabaseClientProvider.postgrest.from("study_groups")
+            val joinedIds = if (currentUser != null) {
+                SupabaseClientProvider.postgrest
+                    .from("study_group_members")
+                    .select {
+                        filter {
+                            eq("user_id", currentUser.id)
+                        }
+                    }
+                    .decodeList<StudyGroupMember>()
+                    .map { it.groupId }
+                    .toSet()
+            } else {
+                emptySet()
+            }
+
+            val dtoList = SupabaseClientProvider.postgrest
+                .from("study_groups")
                 .select()
                 .decodeList<StudyGroupDto>()
 
-            Log.d("EduHubSupabase", "Fetched ${dtoList.size} groups from Supabase")
-
-            val currentUserName = currentUser?.name ?: ""
-            val currentUserEmail = currentUser?.email ?: ""
+            Log.d(
+                "EduHubSupabase",
+                "Fetched ${dtoList.size} groups from Supabase"
+            )
 
             val remoteMapped = dtoList.map { dto ->
-                val isHost = (currentUser != null && dto.hostUserId.isNotBlank() && dto.hostUserId == currentUser.id)
-                val isJoined = isHost || _joinedGroupIds.contains(dto.id)
+
+                val isHost =
+                    currentUser != null &&
+                            dto.hostUserId.isNotBlank() &&
+                            dto.hostUserId == currentUser.id
+
+                val isJoined =
+                    isHost || joinedIds.contains(dto.id)
 
                 if (isJoined) {
                     _joinedGroupIds.add(dto.id)
@@ -1048,54 +1101,103 @@ object StudyGroupRepository {
                     maxMembers = dto.maxMembers,
                     isJoined = isJoined,
                     category = dto.category,
-                    hostUserId = dto.hostUserId
+                    hostUserId = dto.hostUserId,
+                    courseId = dto.courseId,
+                    courseCode = dto.courseCode,
+                    courseTitle = dto.courseTitle,
+                    status = dto.status
                 )
             }
 
             if (remoteMapped.isNotEmpty()) {
-                val merged = (remoteMapped + _groups).distinctBy { it.id }
+                val merged =
+                    (remoteMapped + _groups)
+                        .distinctBy { it.id }
+
                 _groups.clear()
                 _groups.addAll(merged)
-                EduHubLocalStorage.saveGroups(_groups.toList())
+
+                EduHubLocalStorage.saveGroups(
+                    _groups.toList()
+                )
+
                 if (currentUser != null) {
-                    EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
+                    EduHubLocalStorage.saveJoinedGroupIds(
+                        currentUser.id,
+                        _joinedGroupIds
+                    )
                 }
             }
+
         } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to fetch study_groups from Supabase: ${e.message}")
+            Log.e(
+                "EduHubSupabase",
+                "Failed to fetch study_groups from Supabase: ${e.message}"
+            )
         }
+
         _groups.toList()
     }
 
     suspend fun joinGroup(groupId: String) = withContext(Dispatchers.IO) {
         val currentUser = AuthRepository.currentUser.value
-        _joinedGroupIds.add(groupId)
-        if (currentUser != null) {
-            EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
+
+        if (currentUser == null) {
+            Log.e(
+                "EduHubSupabase",
+                "Cannot join group: user is not logged in"
+            )
+            return@withContext
         }
 
-        val i = _groups.indexOfFirst { it.id == groupId }
-        if (i != -1) {
-            val updated = _groups[i].copy(isJoined = true, currentMembers = _groups[i].currentMembers + 1)
-            _groups[i] = updated
-            EduHubLocalStorage.saveGroups(_groups.toList())
+        try {
+            SupabaseClientProvider.postgrest
+                .from("study_group_members")
+                .insert(
+                    StudyGroupMember(
+                        groupId = groupId,
+                        userId = currentUser.id
+                    )
+                )
 
-            try {
-                SupabaseClientProvider.postgrest.from("study_groups").update(
-                    {
-                        set("current_members", updated.currentMembers)
-                    }
-                ) {
-                    filter { eq("id", groupId) }
-                }
-                Log.d("EduHubSupabase", "Updated member count for group $groupId in Supabase")
-            } catch (e: Exception) {
-                Log.e("EduHubSupabase", "Failed to update member count in Supabase: ${e.message}")
+            Log.d(
+                "EduHubSupabase",
+                "User ${currentUser.id} joined group $groupId"
+            )
+
+            _joinedGroupIds.add(groupId)
+
+            EduHubLocalStorage.saveJoinedGroupIds(
+                currentUser.id,
+                _joinedGroupIds
+            )
+
+            val i = _groups.indexOfFirst {
+                it.id == groupId
             }
+
+            if (i != -1) {
+                val updated = _groups[i].copy(
+                    isJoined = true,
+                    currentMembers = _groups[i].currentMembers + 1
+                )
+
+                _groups[i] = updated
+
+                EduHubLocalStorage.saveGroups(
+                    _groups.toList()
+                )
+            }
+
+        } catch (e: Exception) {
+            Log.e(
+                "EduHubSupabase",
+                "Failed to join group: ${e.message}"
+            )
         }
     }
 
-    suspend fun createGroup(name: String, details: String, hostUser: EduHubUser?): StudyGroup = withContext(Dispatchers.IO) {
+    suspend fun createGroup( name: String, details: String, course: Course, hostUser: EduHubUser?): StudyGroup = withContext(Dispatchers.IO) {
         val groupId = UUID.randomUUID().toString()
         val hostId = hostUser?.id ?: ""
         val resolvedHost = if (hostUser != null && hostUser.name.isNotBlank() && hostUser.name != "Me") {
@@ -1112,7 +1214,28 @@ object StudyGroupRepository {
             EduHubLocalStorage.saveJoinedGroupIds(hostUser.id, _joinedGroupIds)
         }
 
-        val g = StudyGroup(groupId, name, resolvedHost, details, 1, 6, true, "GROUP", hostUserId = hostId)
+        val g = StudyGroup(
+            id = groupId,
+            name = name,
+            host = resolvedHost,
+            details = details,
+            currentMembers = 1,
+            maxMembers = 6,
+            category = "GROUP",
+            hostUserId = hostId,
+            courseId = course.id,
+            courseCode = course.code,
+            courseTitle = course.title,
+            status = "INACTIVE"
+        )
+        SupabaseClientProvider.postgrest
+            .from("study_group_members")
+            .insert(
+                StudyGroupMember(
+                    groupId = groupId,
+                    userId = hostId
+                )
+            )
         _groups.add(0, g)
         EduHubLocalStorage.saveGroups(_groups.toList())
 
@@ -1125,35 +1248,59 @@ object StudyGroupRepository {
         EduHubLocalStorage.saveChatMessages(groupId, msgList.toList())
 
         try {
-            SupabaseClientProvider.postgrest.from("study_groups").insert(
-                StudyGroupDto(
-                    id = groupId,
-                    name = name,
-                    host = resolvedHost,
-                    details = details,
-                    currentMembers = 1,
-                    maxMembers = 6,
-                    category = "GROUP",
-                    hostUserId = hostId
+            SupabaseClientProvider.postgrest
+                .from("study_groups")
+                .insert(
+                    StudyGroupDto(
+                        id = groupId,
+                        name = name,
+                        host = resolvedHost,
+                        details = details,
+                        currentMembers = 1,
+                        maxMembers = 6,
+                        category = "GROUP",
+                        hostUserId = hostId,
+                        courseId = course.id,
+                        courseCode = course.code,
+                        courseTitle = course.title,
+                        status = "INACTIVE"
+                    )
                 )
-            )
-            Log.d("EduHubSupabase", "Successfully inserted study group '$name' (Host: $resolvedHost, HostId: $hostId) into Supabase")
 
-            SupabaseClientProvider.postgrest.from("chat_messages").insert(
-                ChatMessageDto(
-                    id = welcomeMsg.id,
-                    groupId = groupId,
-                    senderName = welcomeMsg.senderName,
-                    senderRole = welcomeMsg.senderRole,
-                    message = welcomeMsg.message,
-                    timestamp = welcomeMsg.timestamp,
-                    isFromMe = false
+            SupabaseClientProvider.postgrest
+                .from("study_group_members")
+                .insert(
+                    StudyGroupMember(
+                        groupId = groupId,
+                        userId = hostId
+                    )
                 )
+
+            Log.d(
+                "EduHubSupabase",
+                "Successfully inserted study group '$name'"
             )
+
+            SupabaseClientProvider.postgrest
+                .from("chat_messages")
+                .insert(
+                    ChatMessageDto(
+                        id = welcomeMsg.id,
+                        groupId = groupId,
+                        senderName = welcomeMsg.senderName,
+                        senderRole = welcomeMsg.senderRole,
+                        message = welcomeMsg.message,
+                        timestamp = welcomeMsg.timestamp,
+                        isFromMe = false
+                    )
+                )
+
         } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to insert study group to Supabase: ${e.message}")
+            Log.e(
+                "EduHubSupabase",
+                "Failed to insert study group to Supabase: ${e.message}"
+            )
         }
-
         g
     }
 
