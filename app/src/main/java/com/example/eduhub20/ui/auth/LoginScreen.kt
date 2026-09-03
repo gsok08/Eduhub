@@ -290,9 +290,9 @@ fun LoginScreen(
                                     IconButton(onClick = { viewModel.togglePasswordVisibility() }) {
                                         Icon(
                                             painter = if (uiState.isPasswordVisible) {
-                                                painterResource(id = R.drawable.ic_visibility_off)
-                                            } else {
                                                 painterResource(id = R.drawable.ic_visibility)
+                                            } else {
+                                                painterResource(id = R.drawable.ic_visibility_off)
                                             },
                                             contentDescription = null
                                         )

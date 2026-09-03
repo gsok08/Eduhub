@@ -24,9 +24,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -63,6 +60,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -77,7 +76,6 @@ import com.example.eduhub20.ui.theme.ThemeState
 import kotlinx.coroutines.launch
 import com.example.eduhub20.R
 import com.example.eduhub20.data.model.CampusData
-import com.example.eduhub20.data.model.CampusData.campusList
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,6 +96,15 @@ fun ProfileScreen(
     Log.d("ProfileScreen", "Current user avatar URL: ${currentUser?.avatarUrl}")
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Change Password Dialog states
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var isPasswordVisible by remember { mutableStateOf(false) }
+    var isChangingPassword by remember { mutableStateOf(false) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
 
     // Campus selection state
     val savedCampusName = currentUser?.campus
@@ -149,17 +156,17 @@ fun ProfileScreen(
                                 avatarError = null
                                 // Force recompose by updating the state
                                 selectedImageUri = null
-                                Log.d("ProfileScreen", "✅ Avatar updated: $avatarUrl")
+                                Log.d("ProfileScreen", "Avatar updated: $avatarUrl")
                             },
                             onFailure = { e ->
                                 avatarError = "Failed to update profile: ${e.message}"
-                                Log.e("ProfileScreen", "❌ Failed to update profile: ${e.message}")
+                                Log.e("ProfileScreen", "Failed to update profile: ${e.message}")
                             }
                         )
                     },
                     onFailure = { e ->
                         avatarError = e.message ?: "Failed to upload avatar"
-                        Log.e("ProfileScreen", "❌ Failed to upload avatar: ${e.message}")
+                        Log.e("ProfileScreen", "Failed to upload avatar: ${e.message}")
                     }
                 )
                 isUploadingAvatar = false
@@ -173,7 +180,7 @@ fun ProfileScreen(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp),  // ✅ Smaller height (default is ~64dp)
+                    .height(64.dp),
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 2.dp,
                 tonalElevation = 0.dp
@@ -186,7 +193,7 @@ fun ProfileScreen(
                 ) {
                     IconButton(
                         onClick = { onNavigateBack() },
-                        modifier = Modifier.size(36.dp)  // ✅ Smaller icon button
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_arrow_back),
@@ -200,7 +207,7 @@ fun ProfileScreen(
                         "My Profile",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp  // ✅ Smaller font
+                        fontSize = 20.sp
                     )
                 }
             }
@@ -396,15 +403,27 @@ fun ProfileScreen(
                     )
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_email),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Icon with fixed width
+                        Box(
+                            modifier = Modifier.width(40.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_email),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        // Content with consistent spacing
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Text(
                                 "Email Address",
                                 style = MaterialTheme.typography.labelSmall,
@@ -421,17 +440,24 @@ fun ProfileScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_location_on),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
+                        Box(
+                            modifier = Modifier.width(40.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_location_on),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Text(
                                 "Campus",
                                 style = MaterialTheme.typography.labelSmall,
@@ -454,10 +480,10 @@ fun ProfileScreen(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Icon(
-                                        imageVector = if (campusDropdownExpanded) {
-                                            Icons.Default.KeyboardArrowUp
+                                        painter = if (campusDropdownExpanded) {
+                                            painterResource(id = R.drawable.ic_keyboard_arrow_up)
                                         } else {
-                                            Icons.Default.KeyboardArrowDown
+                                            painterResource(id = R.drawable.ic_keyboard_arrow_down)
                                         },
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -468,7 +494,7 @@ fun ProfileScreen(
                                     onDismissRequest = { campusDropdownExpanded = false },
                                     modifier = Modifier.fillMaxWidth(0.9f)
                                 ) {
-                                    campusList.forEach { campus ->
+                                    CampusData.campusList.forEach { campus ->
                                         DropdownMenuItem(
                                             text = {
                                                 Row(
@@ -495,7 +521,6 @@ fun ProfileScreen(
                                                 }
                                             },
                                             onClick = {
-                                                // Save to Supabase
                                                 selectedCampus = campus
                                                 campusDropdownExpanded = false
                                                 scope.launch {
@@ -505,7 +530,6 @@ fun ProfileScreen(
                                                     }
                                                 }
                                             }
-
                                         )
                                     }
                                 }
@@ -515,16 +539,25 @@ fun ProfileScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_school),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier.width(40.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_school),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
 
-                        Column {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
                             Text(
                                 "Enrolled Courses",
                                 style = MaterialTheme.typography.labelSmall,
@@ -597,7 +630,7 @@ fun ProfileScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     // Notifications Toggle
                     Row(
@@ -634,6 +667,55 @@ fun ProfileScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Security Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showChangePasswordDialog = true },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_security),
+                            contentDescription = null,
+                            tint = EduHubAccentOrange,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "Security & Account Actions",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Change Password",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_arrow_forward),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(28.dp))
 
             // Sign Out Button
@@ -657,6 +739,7 @@ fun ProfileScreen(
         }
     }
 
+    // Edit Name Dialog
     if (showEditNameDialog) {
         AlertDialog(
             onDismissRequest = { showEditNameDialog = false },
@@ -682,6 +765,201 @@ fun ProfileScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEditNameDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+    // ✅ NEW: Change Password Dialog
+    if (showChangePasswordDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showChangePasswordDialog = false
+                currentPassword = ""
+                newPassword = ""
+                confirmPassword = ""
+                passwordError = null
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_lock),
+                        contentDescription = null,
+                        tint = EduHubAccentOrange,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Change Password", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Enter your current password and set a new one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+
+                    // Current Password
+                    OutlinedTextField(
+                        value = currentPassword,
+                        onValueChange = {
+                            currentPassword = it
+                            passwordError = null
+                        },
+                        label = { Text("Current Password") },
+                        leadingIcon = {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_lock),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                // ✅ FIXED: Correct icon mapping
+                                Icon(
+                                    painter = if (isPasswordVisible) {
+                                        painterResource(id = R.drawable.ic_visibility)
+                                    } else {
+                                        painterResource(id = R.drawable.ic_visibility_off)
+                                    },
+                                    contentDescription = if (isPasswordVisible) "Hide password" else "Show password"
+                                )
+                            }
+                        },
+                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // New Password
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = {
+                            newPassword = it
+                            passwordError = null
+                        },
+                        label = { Text("New Password") },
+                        leadingIcon = {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_lock),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        singleLine = true,
+                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Confirm Password
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = {
+                            confirmPassword = it
+                            passwordError = null
+                        },
+                        label = { Text("Confirm New Password") },
+                        leadingIcon = {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_lock),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        singleLine = true,
+                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (passwordError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = passwordError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (currentPassword.isBlank()) {
+                            passwordError = "Please enter your current password"
+                            return@Button
+                        }
+                        if (newPassword.isBlank()) {
+                            passwordError = "Please enter a new password"
+                            return@Button
+                        }
+                        if (newPassword.length < 6) {
+                            passwordError = "Password must be at least 6 characters"
+                            return@Button
+                        }
+                        if (newPassword != confirmPassword) {
+                            passwordError = "Passwords do not match"
+                            return@Button
+                        }
+
+                        isChangingPassword = true
+                        scope.launch {
+                            val result = AuthRepository.changePassword(currentPassword, newPassword)
+                            result.fold(
+                                onSuccess = {
+                                    isChangingPassword = false
+                                    showChangePasswordDialog = false
+                                    currentPassword = ""
+                                    newPassword = ""
+                                    confirmPassword = ""
+                                    passwordError = null
+                                    snackbarHostState.showSnackbar("Password changed successfully!")
+                                },
+                                onFailure = { e ->
+                                    isChangingPassword = false
+                                    passwordError = e.message ?: "Failed to change password"
+                                }
+                            )
+                        }
+                    },
+                    enabled = !isChangingPassword,
+                    colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary)
+                ) {
+                    if (isChangingPassword) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Updating...")
+                    } else {
+                        Text("Change Password")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showChangePasswordDialog = false
+                        currentPassword = ""
+                        newPassword = ""
+                        confirmPassword = ""
+                        passwordError = null
+                    },
+                    enabled = !isChangingPassword
+                ) {
+                    Text("Cancel")
+                }
             }
         )
     }
