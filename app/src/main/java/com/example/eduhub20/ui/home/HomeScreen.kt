@@ -122,12 +122,10 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.clickable { onNavigateToProfile() }
                         ) {
-                            Box(
-                                modifier = Modifier.size(44.dp).clip(CircleShape).background(EduHubPrimary.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.AccountCircle, contentDescription = "Profile", tint = EduHubPrimary, modifier = Modifier.size(34.dp))
-                            }
+                            com.example.eduhub20.ui.common.UserAvatar(
+                                avatarUrl = currentUser?.avatarUrl,
+                                size = 44.dp
+                            )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text("Welcome back!", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

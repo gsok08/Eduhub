@@ -134,14 +134,35 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
     message TEXT NOT NULL,
     timestamp TEXT NOT NULL,
     is_from_me BOOLEAN DEFAULT false,
+    sender_avatar_url TEXT DEFAULT '',
+    sender_id TEXT DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS sender_avatar_url TEXT DEFAULT '';
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS sender_id TEXT DEFAULT '';
 
 ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public full access on chat_messages" ON public.chat_messages;
 CREATE POLICY "Public full access on chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
 
--- 9. Supabase Storage Buckets (Lecture PDFs & User Avatars)
+-- 9. Group Members Table (Tracks Host, Admin, and Member roles)
+CREATE TABLE IF NOT EXISTS public.group_members (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    avatar_url TEXT DEFAULT '',
+    role TEXT DEFAULT 'MEMBER', -- 'HOST', 'ADMIN', 'MEMBER'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(group_id, user_id)
+);
+
+ALTER TABLE public.group_members ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on group_members" ON public.group_members;
+CREATE POLICY "Public full access on group_members" ON public.group_members FOR ALL USING (true) WITH CHECK (true);
+
+-- 10. Supabase Storage Buckets (Lecture PDFs & User Avatars)
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('lecture-notes', 'lecture-notes', true)
 ON CONFLICT (id) DO NOTHING;
@@ -164,6 +185,7 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 
 -- 11. Enable Realtime Replication
 ALTER PUBLICATION supabase_realtime ADD TABLE public.study_groups;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.group_members;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.courses;

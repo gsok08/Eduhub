@@ -29,6 +29,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Deep link for Group Invitation Links: eduhub://group/join/{groupId} -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="eduhub"
+                    android:host="group"
+                    android:pathPrefix="/join" />
+            </intent-filter>
         </activity>
     </application>
 

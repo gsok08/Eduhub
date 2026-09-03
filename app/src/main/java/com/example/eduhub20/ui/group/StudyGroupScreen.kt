@@ -62,6 +62,10 @@ fun StudyGroupScreen(
 
     var newGroupName by remember { mutableStateOf("") }
     var newGroupDetails by remember { mutableStateOf("") }
+    var showJoinByCodeDialog by remember { mutableStateOf(false) }
+    var inviteCodeInput by remember { mutableStateOf("") }
+    var joinError by remember { mutableStateOf<String?>(null) }
+    var isJoiningByCode by remember { mutableStateOf(false) }
 
     val recommended = remember(groups.size, searchGroupQuery, groups.map { it.isJoined }) {
         groups.filter {
@@ -107,6 +111,26 @@ fun StudyGroupScreen(
                 0 -> {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         item {
+                            // Join by invite code/link button
+                            Button(
+                                onClick = {
+                                    inviteCodeInput = ""
+                                    joinError = null
+                                    showJoinByCodeDialog = true
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = EduHubPrimary.copy(alpha = 0.10f),
+                                    contentColor = EduHubPrimary
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
+                            ) {
+                                Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Have an Invite Link or Code? Click to Join", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+
                             OutlinedTextField(
                                 value = searchGroupQuery,
                                 onValueChange = { searchGroupQuery = it },
@@ -256,6 +280,77 @@ fun StudyGroupScreen(
                     }
                 }
             }
+        }
+
+        if (showJoinByCodeDialog) {
+            AlertDialog(
+                onDismissRequest = { if (!isJoiningByCode) showJoinByCodeDialog = false },
+                title = { Text("Join Study Group", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        Text(
+                            "Paste the group invitation link (eduhub://group/join/...) or enter the Group Code below:",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = inviteCodeInput,
+                            onValueChange = { inviteCodeInput = it; joinError = null },
+                            placeholder = { Text("e.g. eduhub://group/join/abc-123") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (joinError != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = joinError!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val input = inviteCodeInput.trim()
+                            if (input.isNotBlank()) {
+                                isJoiningByCode = true
+                                scope.launch {
+                                    val res = StudyGroupRepository.joinGroupByCodeOrLink(input)
+                                    isJoiningByCode = false
+                                    res.fold(
+                                        onSuccess = { joinedGroup ->
+                                            showJoinByCodeDialog = false
+                                            onNavigateToChat(joinedGroup.id)
+                                        },
+                                        onFailure = { e ->
+                                            joinError = e.message ?: "Failed to join group. Please check the code."
+                                        }
+                                    )
+                                }
+                            }
+                        },
+                        enabled = !isJoiningByCode && inviteCodeInput.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary)
+                    ) {
+                        if (isJoiningByCode) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text("Join Group")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showJoinByCodeDialog = false },
+                        enabled = !isJoiningByCode
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

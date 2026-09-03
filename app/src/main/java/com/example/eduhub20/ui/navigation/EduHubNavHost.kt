@@ -254,11 +254,19 @@ fun EduHubNavHost(
             // Chat Room Screen
             composable(
                 route = Screen.ChatRoom.route,
-                arguments = listOf(navArgument("groupId") { type = NavType.StringType })
+                arguments = listOf(navArgument("groupId") { type = NavType.StringType }),
+                deepLinks = listOf(
+                    androidx.navigation.navDeepLink { uriPattern = "eduhub://group/join/{groupId}" }
+                )
             ) { backStackEntry ->
                 val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
                 val group = StudyGroupRepository.getGroups().find { it.id == groupId }
                 val groupName = group?.name ?: "Study Group"
+                androidx.compose.runtime.LaunchedEffect(groupId) {
+                    if (group == null || !group.isJoined) {
+                        StudyGroupRepository.joinGroup(groupId)
+                    }
+                }
                 ChatRoomScreen(
                     groupId = groupId,
                     groupName = groupName,

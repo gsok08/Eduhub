@@ -124,7 +124,19 @@ data class ChatMessage(
     val message: String,
     val timestamp: String,
     val isFromMe: Boolean,
-    val attachmentUrl: String? = null
+    val attachmentUrl: String? = null,
+    val senderAvatarUrl: String? = null,
+    val senderId: String = ""
+)
+
+@Serializable
+data class GroupMember(
+    val id: String = "",
+    val groupId: String,
+    val userId: String,
+    val userName: String,
+    val userAvatarUrl: String? = null,
+    val role: String = "MEMBER" // "HOST", "ADMIN", "MEMBER"
 )
 
 @Serializable
