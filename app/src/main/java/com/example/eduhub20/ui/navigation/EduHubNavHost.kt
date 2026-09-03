@@ -190,6 +190,9 @@ fun EduHubNavHost(
                 StudyGroupScreen(
                     onNavigateToChat = { groupId ->
                         navController.navigate(Screen.ChatRoom.createRoute(groupId))
+                    },
+                    onNavigateToPomodoro = { roomId, roomName ->
+                        navController.navigate(Screen.Pomodoro.createRoute(roomId, roomName))
                     }
                 )
             }
@@ -274,6 +277,45 @@ fun EduHubNavHost(
                     onNavigateToGroupInfo = { gid ->
                         navController.navigate(Screen.GroupInfo.createRoute(gid))
                     }
+                )
+            }
+
+            // Pomodoro Focus Room Screen
+            composable(
+                route = Screen.Pomodoro.route,
+                arguments = listOf(
+                    navArgument("roomId") {
+                        type = NavType.StringType
+                        defaultValue = "general"
+                    },
+                    navArgument("roomName") {
+                        type = NavType.StringType
+                        defaultValue = "Focus Room"
+                    }
+                ),
+                deepLinks = listOf(
+                    androidx.navigation.navDeepLink { uriPattern = "eduhub://pomodoro/join/{roomId}" }
+                )
+            ) { backStackEntry ->
+                val roomId = backStackEntry.arguments?.getString("roomId") ?: "general"
+                val rawRoomName = backStackEntry.arguments?.getString("roomName") ?: "Focus Room"
+                val roomName = try {
+                    java.net.URLDecoder.decode(rawRoomName, "UTF-8")
+                } catch (_: Exception) { rawRoomName }
+
+                com.example.eduhub20.ui.pomodoro.PomodoroScreen(
+                    roomId = roomId,
+                    roomName = roomName,
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToPayment = { navController.navigate(Screen.TngPayment.route) }
+                )
+            }
+
+            // Touch 'n Go AI Receipt Verification Screen
+            composable(Screen.TngPayment.route) {
+                com.example.eduhub20.ui.pomodoro.TngPaymentScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onPaymentSuccess = { navController.popBackStack() }
                 )
             }
 

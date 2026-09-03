@@ -1,10 +1,12 @@
 package com.example.eduhub20.ui.group
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -20,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.eduhub20.data.model.Course
+import com.example.eduhub20.data.model.GroupMember
 import com.example.eduhub20.data.model.StudyGroup
 import com.example.eduhub20.data.repository.AuthRepository
 import com.example.eduhub20.data.repository.CourseRepository
@@ -36,6 +39,7 @@ import kotlin.collections.isNotEmpty
 @Composable
 fun StudyGroupScreen(
     onNavigateToChat: (String) -> Unit,
+    onNavigateToPomodoro: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -90,47 +94,39 @@ fun StudyGroupScreen(
     // Fetch courses
     LaunchedEffect(currentUser?.id) {
         CourseRepository.fetchCoursesFromSupabase()
-        courses = CourseRepository.getEnrolledCourses()
+        val userCourses = CourseRepository.getCoursesForUser(currentUser)
+        courses = if (userCourses.isNotEmpty()) userCourses else CourseRepository.getCourses()
     }
 
-    // Recommended groups
+    // Recommended groups: ONLY recommend and allow search for groups corresponding
+    // to courses the user has enrolled in/joined!
     val recommended = remember(
-        groups.size,
+        groups.toList(),
         searchGroupQuery,
-        groups.map { it.isJoined }
+        courses.toList(),
+        currentUser?.id
     ) {
+        val enrolledKeys = CourseRepository.getEnrolledCourseKeys(currentUser)
+
         groups.filter { group ->
+            // Already joined groups belong to "My Groups", not Recommended
+            if (group.isJoined) return@filter false
 
-            !group.isJoined &&
+            // Check if group belongs to an enrolled course
+            val groupCode = group.courseCode.trim().uppercase()
+            val groupCourseId = group.courseId.trim()
+            val isEnrolledInCourse = (groupCourseId.isNotBlank() && enrolledKeys.contains(groupCourseId)) ||
+                    (groupCode.isNotBlank() && enrolledKeys.contains(groupCode))
 
-                    (
-                            searchGroupQuery.isBlank() ||
+            // If not enrolled in the relevant course, cannot be recommended or searched!
+            if (!isEnrolledInCourse) return@filter false
 
-                                    group.name.contains(
-                                        searchGroupQuery,
-                                        true
-                                    ) ||
-
-                                    group.details.contains(
-                                        searchGroupQuery,
-                                        true
-                                    ) ||
-
-                                    group.host.contains(
-                                        searchGroupQuery,
-                                        true
-                                    ) ||
-
-                                    group.courseCode.contains(
-                                        searchGroupQuery,
-                                        true
-                                    ) ||
-
-                                    group.courseTitle.contains(
-                                        searchGroupQuery,
-                                        true
-                                    )
-                            )
+            searchGroupQuery.isBlank() ||
+                    group.name.contains(searchGroupQuery, true) ||
+                    group.details.contains(searchGroupQuery, true) ||
+                    group.host.contains(searchGroupQuery, true) ||
+                    group.courseCode.contains(searchGroupQuery, true) ||
+                    group.courseTitle.contains(searchGroupQuery, true)
         }
     }
 
@@ -159,11 +155,17 @@ fun StudyGroupScreen(
                 )
         ) {
 
-            Text(
-                "Study Group",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Study Groups",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
             Spacer(
                 modifier = Modifier.height(14.dp)
@@ -338,9 +340,9 @@ fun StudyGroupScreen(
                                             if (
                                                 searchGroupQuery.isBlank()
                                             ) {
-                                                "No recommended groups to join right now. Tap \"Create\" to start a new group!"
+                                                "No recommended groups for your enrolled courses yet. Join more courses, or join directly with a group invite code/link!"
                                             } else {
-                                                "No study groups found matching \"$searchGroupQuery\"."
+                                                "No study groups found matching \"$searchGroupQuery\" among your enrolled courses."
                                             },
                                         modifier = Modifier.padding(20.dp),
                                         style = MaterialTheme
@@ -359,36 +361,30 @@ fun StudyGroupScreen(
 
                                 GroupCardItem(
                                     group = grp,
-
                                     onJoinClick = {
-
                                         scope.launch {
-
-                                            StudyGroupRepository
-                                                .joinGroup(grp.id)
-
-                                            val i =
-                                                groups.indexOfFirst {
-                                                    it.id == grp.id
-                                                }
-
-                                            if (i != -1) {
-
-                                                groups[i] =
-                                                    groups[i].copy(
-                                                        isJoined = true,
-                                                        currentMembers =
-                                                            groups[i]
-                                                                .currentMembers + 1
-                                                    )
-                                            }
-
+                                            StudyGroupRepository.joinGroup(grp.id)
+                                            val updatedGroups = StudyGroupRepository.fetchGroupsFromSupabase()
+                                            groups.clear()
+                                            groups.addAll(updatedGroups)
                                             selectedTab = 2
                                         }
                                     },
-
                                     onChatClick = {
                                         onNavigateToChat(grp.id)
+                                    },
+                                    onPomodoroClick = {
+                                        onNavigateToPomodoro(grp.id, grp.name)
+                                    },
+                                    onLeaveClick = {
+                                        scope.launch {
+                                            val result = StudyGroupRepository.leaveGroup(grp.id)
+                                            if (result.isSuccess) {
+                                                val updatedGroups = StudyGroupRepository.fetchGroupsFromSupabase()
+                                                groups.clear()
+                                                groups.addAll(updatedGroups)
+                                            }
+                                        }
                                     }
                                 )
 
@@ -675,32 +671,27 @@ fun StudyGroupScreen(
 
                                 GroupCardItem(
                                     group = grp,
-
                                     onJoinClick = {},
-
                                     onChatClick = {
                                         onNavigateToChat(grp.id)
+                                    },
+                                    onPomodoroClick = {
+                                        onNavigateToPomodoro(grp.id, grp.name)
+                                    },
+                                    onLeaveClick = {
+                                        scope.launch {
+                                            val result = StudyGroupRepository.leaveGroup(grp.id)
+                                            if (result.isSuccess) {
+                                                val updatedGroups = StudyGroupRepository.fetchGroupsFromSupabase()
+                                                groups.clear()
+                                                groups.addAll(updatedGroups)
+                                            }
+                                        }
                                     }
                                 )
 
                                 Spacer(
                                     modifier = Modifier.height(12.dp)
-                                )
-                            }
-
-                            item {
-
-                                Spacer(
-                                    modifier = Modifier.height(8.dp)
-                                )
-
-                                LiveStudyRoomCard(
-                                    groupName =
-                                        myGroups.first().name,
-
-                                    members =
-                                        StudyGroupRepository
-                                            .getStudyRoomMembers()
                                 )
                             }
                         }
@@ -791,7 +782,9 @@ fun StudyGroupScreen(
 fun GroupCardItem(
     group: StudyGroup,
     onJoinClick: () -> Unit,
-    onChatClick: () -> Unit
+    onChatClick: () -> Unit,
+    onPomodoroClick: () -> Unit = {},
+    onLeaveClick: () -> Unit = {}
 ) {
 
     val cardColor =
@@ -871,7 +864,7 @@ fun GroupCardItem(
                             MaterialTheme
                                 .typography
                                 .bodySmall,
-                        color = Color(0xFF475569)
+                        color = Color(0xFF334155)
                     )
 
                     Spacer(
@@ -890,9 +883,9 @@ fun GroupCardItem(
 
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(36.dp)
                         .clip(
-                            RoundedCornerShape(10.dp)
+                            RoundedCornerShape(8.dp)
                         )
                         .background(
                             Color.White.copy(
@@ -932,34 +925,81 @@ fun GroupCardItem(
 
                 if (group.isJoined) {
 
-                    Button(
-                        onClick = onChatClick,
-                        colors =
-                            ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
-                        shape =
-                            RoundedCornerShape(8.dp),
-                        modifier =
-                            Modifier.height(34.dp)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
 
-                        Text(
-                            "Open Chat",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Button(
+                            onClick = onChatClick,
+                            colors =
+                                ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1E293B),
+                                    contentColor = Color.White
+                                ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text(
+                                "Open Chat",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        Button(
+                            onClick = onPomodoroClick,
+                            colors =
+                                ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF059669),
+                                    contentColor = Color.White
+                                ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text(
+                                "⏱️ Focus",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+
+                        Button(
+                            onClick = onLeaveClick,
+                            colors =
+                                ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFDC2626),
+                                    contentColor = Color.White
+                                ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text(
+                                "Leave",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
                     }
 
                 } else {
 
+                    val isFull = group.currentMembers >= group.maxMembers
                     Button(
                         onClick = onJoinClick,
+                        enabled = !isFull,
                         colors =
                             ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                containerColor = Color(0xFF1E293B),
+                                contentColor = Color.White,
+                                disabledContainerColor = Color(0xFF94A3B8),
+                                disabledContentColor = Color.White
                             ),
                         shape =
                             RoundedCornerShape(8.dp),
@@ -968,227 +1008,11 @@ fun GroupCardItem(
                     ) {
 
                         Text(
-                            "Join",
+                            if (isFull) "Full" else "Join",
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
                         )
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-// =============================================================
-// LIVE STUDY ROOM
-// =============================================================
-
-@Composable
-fun LiveStudyRoomCard(
-    groupName: String,
-    members: List<StudyRoomMember>
-) {
-
-    var secondsElapsed by remember {
-        mutableIntStateOf(794)
-    }
-
-    LaunchedEffect(Unit) {
-
-        while (true) {
-
-            delay(1000)
-
-            secondsElapsed++
-        }
-    }
-
-    val timerText =
-        "%02d:%02d".format(
-            secondsElapsed / 60,
-            secondsElapsed % 60
-        )
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = CardBlue
-        )
-    ) {
-
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-
-            Text(
-                "Active Study Room",
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                color = Color(0xFF1E3A8A)
-            )
-
-            Text(
-                groupName,
-                style =
-                    MaterialTheme
-                        .typography
-                        .bodySmall,
-                color = Color(0xFF334155)
-            )
-
-            Spacer(
-                modifier = Modifier.height(12.dp)
-            )
-
-            Row {
-
-                Box(
-                    modifier = Modifier
-                        .clip(
-                            RoundedCornerShape(6.dp)
-                        )
-                        .background(
-                            EduHubAccentGreen
-                        )
-                        .padding(
-                            horizontal = 10.dp,
-                            vertical = 4.dp
-                        )
-                ) {
-
-                    Text(
-                        "Active",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-
-                Spacer(
-                    modifier = Modifier.width(8.dp)
-                )
-
-                Box(
-                    modifier = Modifier
-                        .clip(
-                            RoundedCornerShape(6.dp)
-                        )
-                        .background(
-                            Color.White.copy(
-                                alpha = 0.8f
-                            )
-                        )
-                        .padding(
-                            horizontal = 10.dp,
-                            vertical = 4.dp
-                        )
-                ) {
-
-                    Text(
-                        "${members.size} Members Online",
-                        color = Color(0xFF1E293B),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            Spacer(
-                modifier = Modifier.height(14.dp)
-            )
-
-            Text(
-                "Time Duration",
-                style =
-                    MaterialTheme
-                        .typography
-                        .labelSmall,
-                color = Color(0xFF334155)
-            )
-
-            Spacer(
-                modifier = Modifier.height(4.dp)
-            )
-
-            Box(
-                modifier = Modifier
-                    .clip(
-                        RoundedCornerShape(10.dp)
-                    )
-                    .background(
-                        Color(0xFF0F172A)
-                    )
-                    .padding(
-                        horizontal = 24.dp,
-                        vertical = 10.dp
-                    )
-            ) {
-
-                Text(
-                    timerText,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp,
-                    color = Color.White
-                )
-            }
-
-            if (members.isNotEmpty()) {
-
-                Spacer(
-                    modifier = Modifier.height(16.dp)
-                )
-
-                Text(
-                    "Status:",
-                    fontWeight = FontWeight.Bold,
-                    style =
-                        MaterialTheme
-                            .typography
-                            .bodyMedium,
-                    color = Color(0xFF1E293B)
-                )
-
-                Spacer(
-                    modifier = Modifier.height(8.dp)
-                )
-
-                members.forEach { m ->
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        verticalAlignment =
-                            Alignment.CenterVertically
-                    ) {
-
-                        Icon(
-                            Icons.Default.AccountCircle,
-                            contentDescription = null,
-                            tint = Color(0xFF1E3A8A),
-                            modifier = Modifier.size(20.dp)
-                        )
-
-                        Spacer(
-                            modifier = Modifier.width(8.dp)
-                        )
-
-                        Column {
-
-                            Text(
-                                m.userId,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-
-                            Text(
-                                "Joined ${m.joinedAt}",
-                                fontSize = 12.sp
-                            )
-                        }
                     }
                 }
             }

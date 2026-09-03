@@ -856,11 +856,41 @@ object CourseRepository {
     fun getCourseById(id: String): Course? =
         getCourses().find { it.id.equals(id, true) || it.code.equals(id, true) }
 
+    fun getEnrolledCourseKeys(user: EduHubUser?): Set<String> {
+        if (user == null) return emptySet()
+        if (user.role == UserRole.LECTURER) {
+            return _courses.flatMap { listOf(it.id.trim(), it.code.trim().uppercase()) }.toSet()
+        }
+        if (_enrolledCourseIds.isEmpty()) {
+            _enrolledCourseIds.addAll(EduHubLocalStorage.loadEnrolledCourseIds(user.id))
+        }
+        val keys = mutableSetOf<String>()
+        keys.addAll(_enrolledCourseIds.map { it.trim() })
+        for (c in _courses) {
+            if (_enrolledCourseIds.contains(c.id) || _enrolledCourseIds.contains(c.code)) {
+                keys.add(c.id.trim())
+                keys.add(c.code.trim().uppercase())
+            }
+        }
+        return keys
+    }
+
     suspend fun fetchCoursesFromSupabase(): List<Course> = withContext(Dispatchers.IO) {
         val currentUser = AuthRepository.currentUser.value
         if (currentUser != null) {
             _enrolledCourseIds.addAll(EduHubLocalStorage.loadEnrolledCourseIds(currentUser.id))
             _hiddenCourseIds.addAll(EduHubLocalStorage.loadHiddenCourseIds(currentUser.id))
+
+            try {
+                val myEnrollments = SupabaseClientProvider.postgrest.from("course_enrollments")
+                    .select { filter { eq("user_id", currentUser.id) } }
+                    .decodeList<CourseEnrollmentDto>()
+                val remoteCourseIds = myEnrollments.map { it.courseId }.toSet()
+                if (remoteCourseIds.isNotEmpty()) {
+                    _enrolledCourseIds.addAll(remoteCourseIds)
+                    EduHubLocalStorage.saveEnrolledCourseIds(currentUser.id, _enrolledCourseIds)
+                }
+            } catch (_: Exception) {}
         }
 
         try {
@@ -1546,7 +1576,13 @@ object StudyGroupRepository {
             } else emptySet()
 
             val remoteMapped = dtoList.map { dto ->
-                val isHost = (currentUser != null && dto.hostUserId.isNotBlank() && dto.hostUserId == currentUser.id) ||
+                val hostMember = allMembers.find { it.groupId == dto.id && it.role == "HOST" }
+                val resolvedHostUserId = when {
+                    dto.hostUserId.isNotBlank() -> dto.hostUserId
+                    hostMember != null -> hostMember.userId
+                    else -> ""
+                }
+                val isHost = (currentUser != null && resolvedHostUserId.isNotBlank() && resolvedHostUserId == currentUser.id) ||
                         (currentUser != null && dto.host.equals(currentUser.name, true))
                 val isJoined = isHost || userJoinedGroupIdsFromDb.contains(dto.id) || _joinedGroupIds.contains(dto.id)
 
@@ -1569,19 +1605,33 @@ object StudyGroupRepository {
                     } catch (_: Exception) {}
                 }
 
+                var resolvedCourseCode = dto.courseCode
+                var resolvedCourseTitle = dto.courseTitle
+                var resolvedCourseId = dto.courseId
+                var cleanDetails = dto.details
+
+                if (resolvedCourseCode.isBlank() && dto.details.contains("[Course:")) {
+                    val tag = dto.details.substringAfter("[Course:").substringBefore("]")
+                    val parts = tag.split("|")
+                    if (parts.isNotEmpty()) resolvedCourseCode = parts[0]
+                    if (parts.size > 1) resolvedCourseTitle = parts[1]
+                    if (parts.size > 2) resolvedCourseId = parts[2]
+                    cleanDetails = dto.details.substringBefore("\n[Course:").trim()
+                }
+
                 StudyGroup(
                     id = dto.id,
                     name = dto.name,
                     host = dto.host,
-                    details = dto.details,
+                    details = cleanDetails,
                     currentMembers = realCount,
                     maxMembers = dto.maxMembers,
                     isJoined = isJoined,
                     category = dto.category,
-                    hostUserId = dto.hostUserId,
-                    courseId = dto.courseId,
-                    courseCode = dto.courseCode,
-                    courseTitle = dto.courseTitle,
+                    hostUserId = resolvedHostUserId,
+                    courseId = resolvedCourseId,
+                    courseCode = resolvedCourseCode,
+                    courseTitle = resolvedCourseTitle,
                     status = dto.status
                 )
             }
@@ -1616,12 +1666,18 @@ object StudyGroupRepository {
     suspend fun joinGroup(groupId: String) = withContext(Dispatchers.IO) {
         val currentUser = AuthRepository.currentUser.value
         val alreadyJoined = _joinedGroupIds.contains(groupId)
+
+        val i = _groups.indexOfFirst { it.id == groupId }
+        if (i != -1 && !alreadyJoined && _groups[i].currentMembers >= _groups[i].maxMembers) {
+            Log.d("EduHubSupabase", "Cannot join group: group is full")
+            return@withContext
+        }
+
         _joinedGroupIds.add(groupId)
         if (currentUser != null) {
             EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
         }
 
-        val i = _groups.indexOfFirst { it.id == groupId }
         if (i != -1) {
             val newCount = if (!alreadyJoined) (_groups[i].currentMembers + 1).coerceAtMost(_groups[i].maxMembers) else _groups[i].currentMembers
             val updated = _groups[i].copy(isJoined = true, currentMembers = newCount)
@@ -1748,21 +1804,24 @@ object StudyGroupRepository {
             )
             Log.d("EduHubSupabase", "Successfully upserted study group '$name' into Supabase")
         } catch (e: Exception) {
-            Log.w("EduHubSupabase", "Primary group upsert failed: ${e.message}. Retrying with base JSON...")
+            Log.w("EduHubSupabase", "Primary group upsert failed (${e.message}). Retrying with guaranteed base columns...")
             try {
+                val storedDetails = if (courseCode.isNotBlank()) {
+                    "$details\n[Course:$courseCode|$courseTitle|$courseId]"
+                } else {
+                    details
+                }
                 val baseGroup = buildJsonObject {
                     put("id", groupId)
                     put("name", name)
                     put("host", resolvedHost)
-                    put("details", details)
+                    put("details", storedDetails)
                     put("current_members", 1)
                     put("max_members", 6)
                     put("category", "GROUP")
-                    if (courseId.isNotBlank()) put("course_id", courseId)
-                    if (courseCode.isNotBlank()) put("course_code", courseCode)
-                    if (courseTitle.isNotBlank()) put("course_title", courseTitle)
                 }
                 SupabaseClientProvider.postgrest.from("study_groups").upsert(baseGroup)
+                Log.d("EduHubSupabase", "Successfully upserted study group '$name' with base columns into Supabase")
             } catch (inner: Exception) {
                 Log.e("EduHubSupabase", "Failed to upsert study group into Supabase: ${inner.message}")
             }
@@ -2054,6 +2113,8 @@ object StudyGroupRepository {
         }
     }
 
+    suspend fun getGroupMembers(groupId: String): List<GroupMember> = fetchGroupMembers(groupId)
+
     suspend fun kickMember(groupId: String, targetUserId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             SupabaseClientProvider.postgrest.from("group_members").delete {
@@ -2065,6 +2126,14 @@ object StudyGroupRepository {
         } catch (e: Exception) {
             Log.e("EduHubSupabase", "Failed to delete from group_members: ${e.message}")
         }
+        try {
+            SupabaseClientProvider.postgrest.from("study_group_members").delete {
+                filter {
+                    eq("group_id", groupId)
+                    eq("user_id", targetUserId)
+                }
+            }
+        } catch (_: Exception) {}
 
         val i = _groups.indexOfFirst { it.id == groupId }
         if (i != -1) {
@@ -2109,15 +2178,33 @@ object StudyGroupRepository {
                     .select { filter { eq("id", cleanId) } }
                     .decodeSingleOrNull<StudyGroupDto>()
                 if (dto != null) {
+                    var resolvedCourseCode = dto.courseCode
+                    var resolvedCourseTitle = dto.courseTitle
+                    var resolvedCourseId = dto.courseId
+                    var cleanDetails = dto.details
+
+                    if (resolvedCourseCode.isBlank() && dto.details.contains("[Course:")) {
+                        val tag = dto.details.substringAfter("[Course:").substringBefore("]")
+                        val parts = tag.split("|")
+                        if (parts.isNotEmpty()) resolvedCourseCode = parts[0]
+                        if (parts.size > 1) resolvedCourseTitle = parts[1]
+                        if (parts.size > 2) resolvedCourseId = parts[2]
+                        cleanDetails = dto.details.substringBefore("\n[Course:").trim()
+                    }
+
                     group = StudyGroup(
                         id = dto.id,
                         name = dto.name,
                         host = dto.host,
-                        details = dto.details,
+                        details = cleanDetails,
                         currentMembers = dto.currentMembers,
                         maxMembers = dto.maxMembers,
                         category = dto.category,
                         hostUserId = dto.hostUserId,
+                        courseId = resolvedCourseId,
+                        courseCode = resolvedCourseCode,
+                        courseTitle = resolvedCourseTitle,
+                        status = dto.status,
                         isJoined = true
                     )
                     _groups.add(0, group)

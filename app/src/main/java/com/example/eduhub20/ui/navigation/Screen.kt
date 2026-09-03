@@ -38,6 +38,17 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
     }
 
     object LecturerDashboard : Screen("lecturer_dashboard")
+
+    object Pomodoro : Screen("pomodoro?roomId={roomId}&roomName={roomName}") {
+        fun createRoute(roomId: String = "general", roomName: String = "Focus Room"): String {
+            val encodedName = try {
+                java.net.URLEncoder.encode(roomName, "UTF-8")
+            } catch (_: Exception) { roomName }
+            return "pomodoro?roomId=$roomId&roomName=$encodedName"
+        }
+    }
+
+    object TngPayment : Screen("tng_payment")
 }
 
 val bottomNavScreens = listOf(
