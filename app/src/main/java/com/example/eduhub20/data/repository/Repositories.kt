@@ -130,11 +130,39 @@ data class StudyGroupDto(
     val details: String,
     @SerialName("current_members")
     val currentMembers: Int = 1,
+
     @SerialName("max_members")
     val maxMembers: Int = 6,
+
     val category: String = "GROUP",
+
     @SerialName("host_user_id")
-    val hostUserId: String = ""
+    val hostUserId: String = "",
+
+    @SerialName("course_id")
+    val courseId: String = "",
+
+    @SerialName("course_code")
+    val courseCode: String = "",
+
+    @SerialName("course_title")
+    val courseTitle: String = "",
+
+    val status: String = "INACTIVE"
+)
+
+@Serializable
+data class StudyRoomMember(
+    val id: String? = null,
+
+    @SerialName("group_id")
+    val groupId: String,
+
+    @SerialName("user_id")
+    val userId: String,
+
+    @SerialName("joined_at")
+    val joinedAt: String? = null
 )
 
 @Serializable
@@ -1472,11 +1500,30 @@ object StudyGroupRepository {
     suspend fun fetchGroupsFromSupabase(): List<StudyGroup> = withContext(Dispatchers.IO) {
         val currentUser = AuthRepository.currentUser.value
         val userId = currentUser?.id ?: "guest"
+
         _joinedGroupIds.clear()
-        _joinedGroupIds.addAll(EduHubLocalStorage.loadJoinedGroupIds(userId))
+        _joinedGroupIds.addAll(
+            EduHubLocalStorage.loadJoinedGroupIds(userId)
+        )
 
         try {
-            val dtoList = SupabaseClientProvider.postgrest.from("study_groups")
+            val joinedIds = if (currentUser != null) {
+                SupabaseClientProvider.postgrest
+                    .from("study_group_members")
+                    .select {
+                        filter {
+                            eq("user_id", currentUser.id)
+                        }
+                    }
+                    .decodeList<StudyGroupMember>()
+                    .map { it.groupId }
+                    .toSet()
+            } else {
+                emptySet()
+            }
+
+            val dtoList = SupabaseClientProvider.postgrest
+                .from("study_groups")
                 .select()
                 .decodeList<StudyGroupDto>()
 
@@ -1525,7 +1572,11 @@ object StudyGroupRepository {
                     maxMembers = dto.maxMembers,
                     isJoined = isJoined,
                     category = dto.category,
-                    hostUserId = dto.hostUserId
+                    hostUserId = dto.hostUserId,
+                    courseId = dto.courseId,
+                    courseCode = dto.courseCode,
+                    courseTitle = dto.courseTitle,
+                    status = dto.status
                 )
             }
 
@@ -1545,9 +1596,14 @@ object StudyGroupRepository {
             if (currentUser != null) {
                 EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
             }
+
         } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to fetch study_groups from Supabase: ${e.message}")
+            Log.e(
+                "EduHubSupabase",
+                "Failed to fetch study_groups from Supabase: ${e.message}"
+            )
         }
+
         _groups.toList()
     }
 
@@ -1584,6 +1640,17 @@ object StudyGroupRepository {
 
         if (currentUser != null) {
             try {
+                SupabaseClientProvider.postgrest
+                    .from("study_group_members")
+                    .insert(
+                        StudyGroupMember(
+                            groupId = groupId,
+                            userId = currentUser.id
+                        )
+                    )
+            } catch (_: Exception) {}
+
+            try {
                 SupabaseClientProvider.postgrest.from("group_members").upsert(
                     GroupMemberDto(
                         id = "${groupId}_${currentUser.id}",
@@ -1598,7 +1665,7 @@ object StudyGroupRepository {
         }
     }
 
-    suspend fun createGroup(name: String, details: String, hostUser: EduHubUser?): StudyGroup = withContext(Dispatchers.IO) {
+    suspend fun createGroup(name: String, details: String, course: Course? = null, hostUser: EduHubUser? = null): StudyGroup = withContext(Dispatchers.IO) {
         val groupId = UUID.randomUUID().toString()
         val hostId = hostUser?.id ?: ""
         val resolvedHost = if (hostUser != null && hostUser.name.isNotBlank() && hostUser.name != "Me") {
@@ -1615,7 +1682,35 @@ object StudyGroupRepository {
             EduHubLocalStorage.saveJoinedGroupIds(hostUser.id, _joinedGroupIds)
         }
 
-        val g = StudyGroup(groupId, name, resolvedHost, details, 1, 6, true, "GROUP", hostUserId = hostId)
+        val courseId = course?.id ?: ""
+        val courseCode = course?.code ?: ""
+        val courseTitle = course?.title ?: ""
+
+        val g = StudyGroup(
+            id = groupId,
+            name = name,
+            host = resolvedHost,
+            details = details,
+            currentMembers = 1,
+            maxMembers = 6,
+            category = "GROUP",
+            hostUserId = hostId,
+            courseId = courseId,
+            courseCode = courseCode,
+            courseTitle = courseTitle,
+            status = "INACTIVE"
+        )
+        try {
+            SupabaseClientProvider.postgrest
+                .from("study_group_members")
+                .insert(
+                    StudyGroupMember(
+                        groupId = groupId,
+                        userId = hostId
+                    )
+                )
+        } catch (_: Exception) {}
+
         _groups.add(0, g)
         EduHubLocalStorage.saveGroups(_groups.toList())
 
@@ -1637,7 +1732,11 @@ object StudyGroupRepository {
                     currentMembers = 1,
                     maxMembers = 6,
                     category = "GROUP",
-                    hostUserId = hostId
+                    hostUserId = hostId,
+                    courseId = courseId,
+                    courseCode = courseCode,
+                    courseTitle = courseTitle,
+                    status = "INACTIVE"
                 )
             )
             Log.d("EduHubSupabase", "Successfully upserted study group '$name' into Supabase")
@@ -1652,6 +1751,9 @@ object StudyGroupRepository {
                     put("current_members", 1)
                     put("max_members", 6)
                     put("category", "GROUP")
+                    if (courseId.isNotBlank()) put("course_id", courseId)
+                    if (courseCode.isNotBlank()) put("course_code", courseCode)
+                    if (courseTitle.isNotBlank()) put("course_title", courseTitle)
                 }
                 SupabaseClientProvider.postgrest.from("study_groups").upsert(baseGroup)
             } catch (inner: Exception) {
@@ -1692,6 +1794,9 @@ object StudyGroupRepository {
 
         g
     }
+
+    suspend fun createGroup(name: String, details: String, hostUser: EduHubUser?): StudyGroup =
+        createGroup(name, details, null, hostUser)
 
     fun getStudyRoomMembers(): List<StudyRoomMember> = _members.toList()
 
