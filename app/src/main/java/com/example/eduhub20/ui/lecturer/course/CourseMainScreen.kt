@@ -9,11 +9,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.eduhub20.data.model.Course
 import com.example.eduhub20.data.repository.CourseRepository
-import com.example.eduhub20.ui.lecturer.materials.LecturerAnnouncementsTab
-import com.example.eduhub20.ui.lecturer.materials.MaterialsScreen
 
 enum class LecturerCourseMode {
     VIEW,
@@ -57,7 +56,6 @@ fun CourseMainScreen(
     }
 
     LaunchedEffect(courseId) {
-
         loading = true
 
         CourseRepository.fetchCoursesFromSupabase()
@@ -69,7 +67,6 @@ fun CourseMainScreen(
     }
 
     if (loading) {
-
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -83,13 +80,11 @@ fun CourseMainScreen(
     val selectedCourse = course
 
     if (selectedCourse == null) {
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-
             IconButton(
                 onClick = onBack
             ) {
@@ -118,19 +113,21 @@ fun CourseMainScreen(
         modifier = Modifier.fillMaxSize()
     ) {
 
+        // =====================================================
+        // COURSE HEADER
+        // =====================================================
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
                     start = 8.dp,
-                    end = 16.dp,
-                    top = 8.dp,
-                    bottom = 8.dp
+                    end = 20.dp,
+                    top = 10.dp,
+                    bottom = 10.dp
                 ),
-            verticalAlignment =
-                Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically
         ) {
-
             IconButton(
                 onClick = onBack
             ) {
@@ -141,113 +138,117 @@ fun CourseMainScreen(
                 )
             }
 
-            Column {
+            Spacer(
+                modifier = Modifier.width(2.dp)
+            )
 
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
                 Text(
                     text = selectedCourse.code,
-                    style =
-                        MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Spacer(
+                    modifier = Modifier.height(1.dp)
                 )
 
                 Text(
                     text = selectedCourse.title,
-                    style =
-                        MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color =
-                        MaterialTheme.colorScheme
-                            .onSurfaceVariant
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
 
-        if (canManage) {
+        // =====================================================
+        // COMPACT JOIN CODE CARD — MANAGE MODE ONLY
+        // =====================================================
 
+        if (canManage) {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        horizontal = 16.dp,
-                        vertical = 8.dp
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 2.dp,
+                        bottom = 12.dp
                     ),
-
-                shape =
-                    RoundedCornerShape(14.dp),
-
+                shape = RoundedCornerShape(16.dp),
                 color =
-                    MaterialTheme
-                        .colorScheme
-                        .primaryContainer
-                        .copy(alpha = 0.35f)
+                    MaterialTheme.colorScheme.primaryContainer
+                        .copy(alpha = 0.30f)
             ) {
-
-                Column(
-                    modifier =
-                        Modifier.padding(16.dp)
+                Row(
+                    modifier = Modifier.padding(
+                        horizontal = 16.dp,
+                        vertical = 13.dp
+                    ),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Course Join Code",
+                            style = MaterialTheme.typography.labelMedium,
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
-                    Text(
-                        text = "Course Join Code",
-                        style =
-                            MaterialTheme.typography
-                                .labelMedium,
+                        Spacer(
+                            modifier = Modifier.height(3.dp)
+                        )
 
-                        color =
-                            MaterialTheme.colorScheme
-                                .onSurfaceVariant
-                    )
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(6.dp)
-                    )
-
-                    Text(
-                        text =
-                            if (
-                                selectedCourse.joinCode
-                                    .isNotBlank()
-                            ) {
-                                selectedCourse.joinCode
-                            } else {
-                                "No join code"
-                            },
-
-                        style =
-                            MaterialTheme.typography
-                                .headlineSmall,
-
-                        color =
-                            MaterialTheme.colorScheme
-                                .primary
-                    )
+                        Text(
+                            text = "Share this code with students to join the course.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
                     Spacer(
-                        modifier =
-                            Modifier.height(4.dp)
+                        modifier = Modifier.width(12.dp)
                     )
 
-                    Text(
-                        text =
-                            "Share this code with students to join the course.",
-
-                        style =
-                            MaterialTheme.typography
-                                .bodySmall,
-
-                        color =
-                            MaterialTheme.colorScheme
-                                .onSurfaceVariant
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface
+                    ) {
+                        Text(
+                            text =
+                                if (selectedCourse.joinCode.isNotBlank()) {
+                                    selectedCourse.joinCode
+                                } else {
+                                    "No code"
+                                },
+                            modifier = Modifier.padding(
+                                horizontal = 14.dp,
+                                vertical = 9.dp
+                            ),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
 
+        // =====================================================
+        // TABS
+        // =====================================================
+
         TabRow(
-            selectedTabIndex = selectedTab
+            selectedTabIndex = selectedTab,
+            containerColor = MaterialTheme.colorScheme.surface
         ) {
-
             tabs.forEachIndexed { index, title ->
-
                 Tab(
                     selected = selectedTab == index,
                     onClick = {
@@ -256,57 +257,73 @@ fun CourseMainScreen(
                     text = {
                         Text(
                             text = title,
-                            maxLines = 1
+                            maxLines = 1,
+                            fontWeight =
+                                if (selectedTab == index) {
+                                    FontWeight.SemiBold
+                                } else {
+                                    FontWeight.Normal
+                                }
                         )
                     }
                 )
             }
         }
 
+        // =====================================================
+        // TAB CONTENT
+        // =====================================================
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
+            val safeCourseCode =
+                course?.code ?: courseId
 
             when (selectedTab) {
 
                 0 -> {
-
-                    LecturerAnnouncementsTab(
-                        courseId = selectedCourse.id,
+                    LecturerAnnouncementsSection(
+                        courseId = courseId,
                         canManage = canManage,
-                        onAddAnnouncement =
-                            onAddAnnouncement
+                        onAddAnnouncement = onAddAnnouncement,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 18.dp,
+                                bottom = 8.dp
+                            )
                     )
                 }
 
                 1 -> {
-
-                    MaterialsScreen(
-                        courseCode =
-                            selectedCourse.code,
+                    LecturerMaterialsSection(
+                        courseCode = safeCourseCode,
                         canManage = canManage,
-
                         onUploadNote = {
-                            onUploadNote(
-                                selectedCourse.code
-                            )
+                            onUploadNote(safeCourseCode)
                         },
-
-                        onOpenPaper = {
-                            onUploadPaper(
-                                selectedCourse.code
+                        onUploadPaper = {
+                            onUploadPaper(safeCourseCode)
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 18.dp,
+                                bottom = 8.dp
                             )
-                        }
                     )
                 }
 
                 2 -> {
-
                     StudentsScreen(
-                        courseId =
-                            selectedCourse.id,
+                        courseId = selectedCourse.id,
                         canManage = canManage
                     )
                 }
