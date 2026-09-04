@@ -22,6 +22,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
 import androidx.core.content.edit
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -1955,6 +1956,29 @@ object CalendarRepository {
     private val _reminders = MutableStateFlow<List<ReminderEntity>>(emptyList())
     val reminders: StateFlow<List<ReminderEntity>> = _reminders.asStateFlow()
 
+    private var currentUserId: String = ""
+
+    fun initForUser(userId: String) {
+        if (userId.isBlank()) return
+        if (currentUserId == userId && _exams.value.isNotEmpty()) return
+        currentUserId = userId
+
+        // 1. Instant local cache load for zero UI lag
+        val localExams = EduHubLocalStorage.loadUserExams(userId)
+        val localTasks = EduHubLocalStorage.loadUserTasks(userId)
+        val localReminders = EduHubLocalStorage.loadUserReminders(userId)
+        if (localExams.isNotEmpty()) _exams.value = localExams
+        if (localTasks.isNotEmpty()) _tasks.value = localTasks
+        if (localReminders.isNotEmpty()) _reminders.value = localReminders
+
+        // 2. Fetch fresh from Supabase in background
+        CoroutineScope(Dispatchers.IO).launch {
+            fetchExams(userId)
+            fetchTasks(userId)
+            fetchReminders(userId)
+        }
+    }
+
     suspend fun fetchExams(userId: String) = withContext(Dispatchers.IO) {
         try {
             val allExams = SupabaseClientProvider.postgrest.from("exams")
@@ -1969,11 +1993,15 @@ object CalendarRepository {
                     date = dto.date
                 )
             }
-            _exams.value = entities
-            Log.d("CalendarRepo", "Fetched ${entities.size} exams")
+            val local = EduHubLocalStorage.loadUserExams(userId)
+            val merged = (entities + local).distinctBy { it.id }
+            _exams.value = merged
+            EduHubLocalStorage.saveUserExams(userId, merged)
+            Log.d("CalendarRepo", "Fetched and cached ${merged.size} exams for user $userId")
         } catch (e: Exception) {
-            Log.e("CalendarRepo", "Failed to fetch exams: ${e.message}")
-            _exams.value = emptyList()
+            Log.w("CalendarRepo", "Remote fetch exams failed: ${e.message}. Using local cache.")
+            val local = EduHubLocalStorage.loadUserExams(userId)
+            if (local.isNotEmpty()) _exams.value = local
         }
     }
 
@@ -1992,11 +2020,15 @@ object CalendarRepository {
                     isCompleted = dto.isCompleted
                 )
             }
-            _tasks.value = entities
-            Log.d("CalendarRepo", "Fetched ${entities.size} tasks")
+            val local = EduHubLocalStorage.loadUserTasks(userId)
+            val merged = (entities + local).distinctBy { it.id }
+            _tasks.value = merged
+            EduHubLocalStorage.saveUserTasks(userId, merged)
+            Log.d("CalendarRepo", "Fetched and cached ${merged.size} tasks for user $userId")
         } catch (e: Exception) {
-            Log.e("CalendarRepo", "Failed to fetch tasks: ${e.message}")
-            _tasks.value = emptyList()
+            Log.w("CalendarRepo", "Remote fetch tasks failed: ${e.message}. Using local cache.")
+            val local = EduHubLocalStorage.loadUserTasks(userId)
+            if (local.isNotEmpty()) _tasks.value = local
         }
     }
 
@@ -2015,34 +2047,47 @@ object CalendarRepository {
                     time = dto.time
                 )
             }
-            _reminders.value = entities
-            Log.d("CalendarRepo", "Fetched ${entities.size} reminders")
+            val local = EduHubLocalStorage.loadUserReminders(userId)
+            val merged = (entities + local).distinctBy { it.id }
+            _reminders.value = merged
+            EduHubLocalStorage.saveUserReminders(userId, merged)
+            Log.d("CalendarRepo", "Fetched and cached ${merged.size} reminders for user $userId")
         } catch (e: Exception) {
-            Log.e("CalendarRepo", "Failed to fetch reminders: ${e.message}")
-            _reminders.value = emptyList()
+            Log.w("CalendarRepo", "Remote fetch reminders failed: ${e.message}. Using local cache.")
+            val local = EduHubLocalStorage.loadUserReminders(userId)
+            if (local.isNotEmpty()) _reminders.value = local
         }
     }
 
     suspend fun saveExam(exam: ExamEntity): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            _exams.value = (_exams.value.filter { it.id != exam.id } + exam)
+            EduHubLocalStorage.saveUserExams(exam.userId, _exams.value)
+
             val dto = ExamDto(
                 id = exam.id,
                 userId = exam.userId,
                 name = exam.name,
                 date = exam.date
             )
-            SupabaseClientProvider.postgrest.from("exams").insert(dto)
-            _exams.value = _exams.value + exam
-            Log.d("CalendarRepo", "Saved exam: ${exam.name}")
+            try {
+                SupabaseClientProvider.postgrest.from("exams").upsert(dto)
+                Log.d("CalendarRepo", "Upserted exam into Supabase: ${exam.name}")
+            } catch (netErr: Exception) {
+                Log.w("CalendarRepo", "Supabase upsert exam deferred: ${netErr.message}")
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CalendarRepo", "Failed to save exam: ${e.message}")
-            Result.failure(Exception("Failed to save exam: ${e.message}"))
+            Result.failure(e)
         }
     }
 
     suspend fun saveTask(task: TaskEntity): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            _tasks.value = (_tasks.value.filter { it.id != task.id } + task)
+            EduHubLocalStorage.saveUserTasks(task.userId, _tasks.value)
+
             val dto = TaskDto(
                 id = task.id,
                 userId = task.userId,
@@ -2050,18 +2095,24 @@ object CalendarRepository {
                 date = task.date,
                 isCompleted = task.isCompleted
             )
-            SupabaseClientProvider.postgrest.from("tasks").insert(dto)
-            _tasks.value = _tasks.value + task
-            Log.d("CalendarRepo", "Saved task: ${task.name}")
+            try {
+                SupabaseClientProvider.postgrest.from("tasks").upsert(dto)
+                Log.d("CalendarRepo", "Upserted task into Supabase: ${task.name}")
+            } catch (netErr: Exception) {
+                Log.w("CalendarRepo", "Supabase upsert task deferred: ${netErr.message}")
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CalendarRepo", "Failed to save task: ${e.message}")
-            Result.failure(Exception("Failed to save task: ${e.message}"))
+            Result.failure(e)
         }
     }
 
     suspend fun saveReminder(reminder: ReminderEntity): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            _reminders.value = (_reminders.value.filter { it.id != reminder.id } + reminder)
+            EduHubLocalStorage.saveUserReminders(reminder.userId, _reminders.value)
+
             val dto = ReminderDto(
                 id = reminder.id,
                 userId = reminder.userId,
@@ -2069,87 +2120,113 @@ object CalendarRepository {
                 date = reminder.date,
                 time = reminder.time
             )
-            SupabaseClientProvider.postgrest.from("reminders").insert(dto)
-            _reminders.value = _reminders.value + reminder
-            Log.d("CalendarRepo", "Saved reminder: ${reminder.name}")
+            try {
+                SupabaseClientProvider.postgrest.from("reminders").upsert(dto)
+                Log.d("CalendarRepo", "Upserted reminder into Supabase: ${reminder.name}")
+            } catch (netErr: Exception) {
+                Log.w("CalendarRepo", "Supabase upsert reminder deferred: ${netErr.message}")
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CalendarRepo", "Failed to save reminder: ${e.message}")
-            Result.failure(Exception("Failed to save reminder: ${e.message}"))
+            Result.failure(e)
         }
     }
 
     suspend fun updateTask(task: TaskEntity): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            SupabaseClientProvider.postgrest.from("tasks")
-                .update(
-                    mapOf("is_completed" to task.isCompleted)
-                ) {
-                    filter { eq("id", task.id) }
-                }
-            _tasks.value = _tasks.value.map {
-                if (it.id == task.id) task else it
+            _tasks.value = _tasks.value.map { if (it.id == task.id) task else it }
+            EduHubLocalStorage.saveUserTasks(task.userId, _tasks.value)
+
+            try {
+                SupabaseClientProvider.postgrest.from("tasks")
+                    .update(mapOf("is_completed" to task.isCompleted)) {
+                        filter { eq("id", task.id) }
+                    }
+            } catch (netErr: Exception) {
+                Log.w("CalendarRepo", "Supabase update task deferred: ${netErr.message}")
             }
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CalendarRepo", "Failed to update task: ${e.message}")
-            Result.failure(Exception("Failed to update task: ${e.message}"))
+            Result.failure(e)
         }
     }
 
-    suspend fun deleteExam(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteExam(id: String, userId: String = ""): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            SupabaseClientProvider.postgrest.from("exams").delete {
-                filter { eq("id", id) }
-            }
             _exams.value = _exams.value.filter { it.id != id }
+            val uid = if (userId.isNotBlank()) userId else currentUserId
+            if (uid.isNotBlank()) EduHubLocalStorage.saveUserExams(uid, _exams.value)
+
+            try {
+                SupabaseClientProvider.postgrest.from("exams").delete {
+                    filter { eq("id", id) }
+                }
+            } catch (netErr: Exception) {
+                Log.w("CalendarRepo", "Supabase delete exam deferred: ${netErr.message}")
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CalendarRepo", "Failed to delete exam: ${e.message}")
-            Result.failure(Exception("Failed to delete exam: ${e.message}"))
+            Result.failure(e)
         }
     }
 
-    suspend fun deleteTask(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteTask(id: String, userId: String = ""): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            SupabaseClientProvider.postgrest.from("tasks").delete {
-                filter { eq("id", id) }
-            }
             _tasks.value = _tasks.value.filter { it.id != id }
+            val uid = if (userId.isNotBlank()) userId else currentUserId
+            if (uid.isNotBlank()) EduHubLocalStorage.saveUserTasks(uid, _tasks.value)
+
+            try {
+                SupabaseClientProvider.postgrest.from("tasks").delete {
+                    filter { eq("id", id) }
+                }
+            } catch (netErr: Exception) {
+                Log.w("CalendarRepo", "Supabase delete task deferred: ${netErr.message}")
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CalendarRepo", "Failed to delete task: ${e.message}")
-            Result.failure(Exception("Failed to delete task: ${e.message}"))
+            Result.failure(e)
         }
     }
 
-    suspend fun deleteReminder(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteReminder(id: String, userId: String = ""): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            SupabaseClientProvider.postgrest.from("reminders").delete {
-                filter { eq("id", id) }
-            }
             _reminders.value = _reminders.value.filter { it.id != id }
+            val uid = if (userId.isNotBlank()) userId else currentUserId
+            if (uid.isNotBlank()) EduHubLocalStorage.saveUserReminders(uid, _reminders.value)
+
+            try {
+                SupabaseClientProvider.postgrest.from("reminders").delete {
+                    filter { eq("id", id) }
+                }
+            } catch (netErr: Exception) {
+                Log.w("CalendarRepo", "Supabase delete reminder deferred: ${netErr.message}")
+            }
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("CalendarRepo", "Failed to delete reminder: ${e.message}")
-            Result.failure(Exception("Failed to delete reminder: ${e.message}"))
+            Result.failure(e)
         }
     }
 
     suspend fun clearAll(userId: String) = withContext(Dispatchers.IO) {
         try {
-            SupabaseClientProvider.postgrest.from("exams").delete {
-                filter { eq("user_id", userId) }
-            }
-            SupabaseClientProvider.postgrest.from("tasks").delete {
-                filter { eq("user_id", userId) }
-            }
-            SupabaseClientProvider.postgrest.from("reminders").delete {
-                filter { eq("user_id", userId) }
-            }
             _exams.value = emptyList()
             _tasks.value = emptyList()
             _reminders.value = emptyList()
+            EduHubLocalStorage.saveUserExams(userId, emptyList())
+            EduHubLocalStorage.saveUserTasks(userId, emptyList())
+            EduHubLocalStorage.saveUserReminders(userId, emptyList())
+
+            try {
+                SupabaseClientProvider.postgrest.from("exams").delete { filter { eq("user_id", userId) } }
+                SupabaseClientProvider.postgrest.from("tasks").delete { filter { eq("user_id", userId) } }
+                SupabaseClientProvider.postgrest.from("reminders").delete { filter { eq("user_id", userId) } }
+            } catch (_: Exception) {}
         } catch (e: Exception) {
             Log.e("CalendarRepo", "Failed to clear data: ${e.message}")
         }

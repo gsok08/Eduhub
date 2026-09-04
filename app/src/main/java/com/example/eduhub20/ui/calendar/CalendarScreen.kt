@@ -191,12 +191,10 @@ fun CalendarScreen(modifier: Modifier = Modifier) {
     val isToday = selectedDateMillis == todayMillis
     val displayDate = dayFormat.format(Date(selectedDateMillis))
 
-    // ── Load saved data from Supabase when screen opens ──
+    // ── Load saved data from Supabase & Local Cache when screen opens ──
     LaunchedEffect(currentUser?.id) {
         if (currentUser != null) {
-            CalendarRepository.fetchExams(currentUser.id)
-            CalendarRepository.fetchTasks(currentUser.id)
-            CalendarRepository.fetchReminders(currentUser.id)
+            CalendarRepository.initForUser(currentUser.id)
         }
     }
 

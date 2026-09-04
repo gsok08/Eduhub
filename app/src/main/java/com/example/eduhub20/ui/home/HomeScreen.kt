@@ -20,12 +20,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.eduhub20.data.local.EduHubLocalStorage
 import com.example.eduhub20.data.model.Course
 import com.example.eduhub20.data.model.EduHubUser
 import com.example.eduhub20.data.model.UserRole
+import com.example.eduhub20.data.repository.CalendarRepository
 import com.example.eduhub20.data.repository.CourseRepository
 import com.example.eduhub20.data.repository.NoteQuizRepository
 import com.example.eduhub20.data.repository.PastYearRepository
+import com.example.eduhub20.data.service.NotificationService
+import com.example.eduhub20.data.service.NotificationSeverity
+import com.example.eduhub20.ui.components.NotificationDialog
+import com.example.eduhub20.ui.components.ScheduleItemType
+import com.example.eduhub20.ui.components.UniversalScheduleDialog
 import com.example.eduhub20.ui.theme.CardBlue
 import com.example.eduhub20.ui.theme.CardCoral
 import com.example.eduhub20.ui.theme.CardGreen
@@ -42,6 +49,7 @@ fun HomeScreen(
     onNavigateToCourse: (String) -> Unit,
     onNavigateToLecturerPortal: () -> Unit,
     onNavigateToProfile: () -> Unit,
+    onNavigateToCalendar: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -63,6 +71,38 @@ fun HomeScreen(
             refreshCourses()
             NoteQuizRepository.fetchNotesFromSupabase()
             delay(15_000L)
+        }
+    }
+
+    // ── Schedule & Notifications System ─────────────────────────────────────
+    val exams by CalendarRepository.exams.collectAsState()
+    val tasks by CalendarRepository.tasks.collectAsState()
+    val reminders by CalendarRepository.reminders.collectAsState()
+
+    var dismissedNotifIds by remember(currentUser?.id) {
+        mutableStateOf(
+            if (currentUser != null) EduHubLocalStorage.loadDismissedNotifications(currentUser.id)
+            else emptySet()
+        )
+    }
+
+    val activeNotifications = remember(exams, reminders, tasks, dismissedNotifIds) {
+        NotificationService.computeNotifications(
+            exams = exams,
+            reminders = reminders,
+            tasks = tasks,
+            dismissedIds = dismissedNotifIds
+        )
+    }
+
+    var showNotificationDialog by remember { mutableStateOf(false) }
+    var showQuickAddDialog by remember { mutableStateOf(false) }
+    var quickAddInitialType by remember { mutableStateOf(ScheduleItemType.EXAM) }
+
+    // Init Calendar Repository for active user
+    LaunchedEffect(currentUser?.id) {
+        if (currentUser != null) {
+            CalendarRepository.initForUser(currentUser.id)
         }
     }
 
@@ -133,8 +173,30 @@ fun HomeScreen(
                                 Text(currentUser?.name ?: "User", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                             }
                         }
-                        IconButton(onClick = {}) {
-                            Icon(Icons.Default.Notifications, contentDescription = "Notifications")
+                        BadgedBox(
+                            badge = {
+                                if (activeNotifications.isNotEmpty()) {
+                                    val hasUrgent = activeNotifications.any { it.severity == NotificationSeverity.URGENT }
+                                    Badge(
+                                        containerColor = if (hasUrgent) Color(0xFFDC2626) else Color(0xFFF59E0B),
+                                        contentColor = Color.White
+                                    ) {
+                                        Text(
+                                            text = if (activeNotifications.size > 9) "9+" else "${activeNotifications.size}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            IconButton(onClick = { showNotificationDialog = true }) {
+                                Icon(
+                                    Icons.Default.Notifications,
+                                    contentDescription = "Notifications",
+                                    tint = if (activeNotifications.isNotEmpty()) EduHubPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
 
@@ -489,6 +551,48 @@ fun HomeScreen(
                 Button(onClick = { showHiddenCoursesDialog = false }) {
                     Text("Done")
                 }
+            }
+        )
+    }
+
+    // ── Interactive Notifications Modal ──────────────────────────────────────
+    if (showNotificationDialog) {
+        NotificationDialog(
+            notifications = activeNotifications,
+            onDismissRequest = { showNotificationDialog = false },
+            onNavigateToCalendar = {
+                showNotificationDialog = false
+                onNavigateToCalendar()
+            },
+            onDismissNotification = { notifId ->
+                val updated = dismissedNotifIds + notifId
+                dismissedNotifIds = updated
+                if (currentUser != null) {
+                    EduHubLocalStorage.saveDismissedNotifications(currentUser.id, updated)
+                }
+            },
+            onClearAll = {
+                val allIds = activeNotifications.map { it.id }.toSet()
+                val updated = dismissedNotifIds + allIds
+                dismissedNotifIds = updated
+                if (currentUser != null) {
+                    EduHubLocalStorage.saveDismissedNotifications(currentUser.id, updated)
+                }
+            },
+            onOpenQuickAdd = {
+                quickAddInitialType = ScheduleItemType.EXAM
+                showQuickAddDialog = true
+            }
+        )
+    }
+
+    // ── Universal Quick Add Dialog (Exam / Task / Reminder) ──────────────────
+    if (showQuickAddDialog) {
+        UniversalScheduleDialog(
+            initialType = quickAddInitialType,
+            onDismiss = { showQuickAddDialog = false },
+            onCreated = {
+                // CalendarRepository updates reactively, recalculating notifications instantly
             }
         )
     }

@@ -7,8 +7,11 @@ import com.example.eduhub20.data.model.AiGeneratedNote
 import com.example.eduhub20.data.model.Announcement
 import com.example.eduhub20.data.model.ChatMessage
 import com.example.eduhub20.data.model.Course
+import com.example.eduhub20.data.model.ExamEntity
 import com.example.eduhub20.data.model.LectureNote
+import com.example.eduhub20.data.model.ReminderEntity
 import com.example.eduhub20.data.model.StudyGroup
+import com.example.eduhub20.data.model.TaskEntity
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -303,5 +306,81 @@ object EduHubLocalStorage {
 
     fun loadStudentName(userId: String): String? {
         return prefs?.getString("student_name_" + userId.trim(), null)
+    }
+
+    // ── Account-Scoped Exams Persistence ─────────────────────────────────
+    fun saveUserExams(userId: String, exams: List<ExamEntity>) {
+        if (userId.isBlank()) return
+        try {
+            val serialized = json.encodeToString(exams)
+            prefs?.edit { putString("user_exams_${userId.trim()}", serialized) }
+        } catch (_: Exception) {}
+    }
+
+    fun loadUserExams(userId: String): List<ExamEntity> {
+        if (userId.isBlank()) return emptyList()
+        return try {
+            val serialized = prefs?.getString("user_exams_${userId.trim()}", null) ?: return emptyList()
+            json.decodeFromString<List<ExamEntity>>(serialized)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    // ── Account-Scoped Tasks Persistence ─────────────────────────────────
+    fun saveUserTasks(userId: String, tasks: List<TaskEntity>) {
+        if (userId.isBlank()) return
+        try {
+            val serialized = json.encodeToString(tasks)
+            prefs?.edit { putString("user_tasks_${userId.trim()}", serialized) }
+        } catch (_: Exception) {}
+    }
+
+    fun loadUserTasks(userId: String): List<TaskEntity> {
+        if (userId.isBlank()) return emptyList()
+        return try {
+            val serialized = prefs?.getString("user_tasks_${userId.trim()}", null) ?: return emptyList()
+            json.decodeFromString<List<TaskEntity>>(serialized)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    // ── Account-Scoped Reminders Persistence ─────────────────────────────
+    fun saveUserReminders(userId: String, reminders: List<ReminderEntity>) {
+        if (userId.isBlank()) return
+        try {
+            val serialized = json.encodeToString(reminders)
+            prefs?.edit { putString("user_reminders_${userId.trim()}", serialized) }
+        } catch (_: Exception) {}
+    }
+
+    fun loadUserReminders(userId: String): List<ReminderEntity> {
+        if (userId.isBlank()) return emptyList()
+        return try {
+            val serialized = prefs?.getString("user_reminders_${userId.trim()}", null) ?: return emptyList()
+            json.decodeFromString<List<ReminderEntity>>(serialized)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    // ── Account-Scoped Dismissed Notifications ───────────────────────────
+    fun saveDismissedNotifications(userId: String, dismissedIds: Set<String>) {
+        if (userId.isBlank()) return
+        try {
+            val serialized = json.encodeToString(dismissedIds.toList())
+            prefs?.edit { putString("user_dismissed_notifs_${userId.trim()}", serialized) }
+        } catch (_: Exception) {}
+    }
+
+    fun loadDismissedNotifications(userId: String): Set<String> {
+        if (userId.isBlank()) return emptySet()
+        return try {
+            val serialized = prefs?.getString("user_dismissed_notifs_${userId.trim()}", null) ?: return emptySet()
+            json.decodeFromString<List<String>>(serialized).toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
     }
 }

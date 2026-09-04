@@ -180,6 +180,9 @@ fun EduHubNavHost(
                     },
                     onNavigateToProfile = {
                         navController.navigate(Screen.Profile.route)
+                    },
+                    onNavigateToCalendar = {
+                        navController.navigate(Screen.Calendar.route)
                     }
                 )
             }
