@@ -1704,23 +1704,67 @@ object NoteQuizRepository {
         }
     }
 
-    suspend fun updateLectureNote(note: LectureNote) = withContext(Dispatchers.IO) {
-        val idx = _notes.indexOfFirst { it.id == note.id }
-        if (idx != -1) _notes[idx] = note
+    suspend fun updateLectureNote(
+        note: LectureNote
+    ) = withContext(Dispatchers.IO) {
+        // Update local copy
+        val idx =
+            _notes.indexOfFirst {
+                it.id == note.id
+            }
+        if (idx != -1) {
+            _notes[idx] = note
+        }
+        // The note changed, so remove any old AI cache
         _aiCache.remove(note.id)
         EduHubLocalStorage.saveNotes(_notes)
-
+        // Update Supabase
         try {
-            SupabaseClientProvider.postgrest.from("lecture_notes").update(
-                {
-                    set("chapter_title", note.chapterTitle)
-                    set("semester_period", note.semesterPeriod)
-                    set("raw_content", note.rawContent)
+            SupabaseClientProvider
+                .postgrest
+                .from("lecture_notes")
+                .update(
+                    {
+                        set(
+                            "chapter_title",
+                            note.chapterTitle
+                        )
+                        set(
+                            "semester_period",
+                            note.semesterPeriod
+                        )
+                        set(
+                            "raw_content",
+                            note.rawContent
+                        )
+                        // IMPORTANT:
+                        // allows lecturer to replace wrong PDF
+                        set(
+                            "pdf_file_name",
+                            note.pdfFileName
+                        )
+                        set(
+                            "pdf_url",
+                            note.pdfUrl
+                        )
+                    }
+                ) {
+                    filter {
+                        eq(
+                            "id",
+                            note.id
+                        )
+                    }
                 }
-            ) { filter { eq("id", note.id) } }
-            Log.d("EduHubSupabase", "Updated lecture note '${note.id}' in Supabase")
+            Log.d(
+                "EduHubSupabase",
+                "Updated lecture note '${note.id}' in Supabase"
+            )
         } catch (e: Exception) {
-            Log.e("EduHubSupabase", "Failed to update lecture note in Supabase: ${e.message}")
+            Log.e(
+                "EduHubSupabase",
+                "Failed to update lecture note in Supabase: ${e.message}"
+            )
         }
     }
 
@@ -2757,6 +2801,163 @@ object PastYearRepository {
             Log.d("EduHubSupabase", "Upserted past year paper '${paper.session}' into Supabase")
         } catch (e: Exception) {
             Log.e("EduHubSupabase", "Failed to upsert past year paper to Supabase: ${e.message}")
+        }
+    }
+
+    suspend fun updatePaper(
+        paper: PastYearPaper
+    ) = withContext(Dispatchers.IO) {
+
+        // =========================================
+        // UPDATE LOCAL DATA
+        // =========================================
+
+        val index =
+            _papers.indexOfFirst {
+                it.id == paper.id
+            }
+
+        if (index != -1) {
+
+            _papers[index] =
+                paper
+        }
+
+        EduHubLocalStorage
+            .savePastYearPapers(
+                _papers
+            )
+
+
+        // =========================================
+        // UPDATE SUPABASE
+        // =========================================
+
+        try {
+
+            SupabaseClientProvider
+                .postgrest
+                .from("past_year_papers")
+                .update(
+                    {
+
+                        set(
+                            "course_code",
+                            paper.courseCode
+                        )
+
+                        set(
+                            "course_title",
+                            paper.courseTitle
+                        )
+
+                        set(
+                            "session",
+                            paper.session
+                        )
+
+                        set(
+                            "subject_category",
+                            paper.subjectCategory
+                        )
+
+                        set(
+                            "year",
+                            paper.year
+                        )
+
+                        set(
+                            "duration_minutes",
+                            paper.durationMinutes
+                        )
+
+                        set(
+                            "total_marks",
+                            paper.totalMarks
+                        )
+
+                        set(
+                            "pdf_url",
+                            paper.pdfUrl
+                        )
+                    }
+                ) {
+
+                    filter {
+
+                        eq(
+                            "id",
+                            paper.id
+                        )
+                    }
+                }
+
+
+            Log.d(
+                "EduHubSupabase",
+                "Updated past year paper '${paper.id}' in Supabase"
+            )
+
+        } catch (e: Exception) {
+
+            Log.e(
+                "EduHubSupabase",
+                "Failed to update past year paper: ${e.message}"
+            )
+        }
+    }
+
+
+    suspend fun deletePaper(
+        paperId: String
+    ) = withContext(Dispatchers.IO) {
+
+        // =========================================
+        // DELETE LOCAL DATA
+        // =========================================
+
+        _papers.removeAll {
+            it.id == paperId
+        }
+
+        EduHubLocalStorage
+            .savePastYearPapers(
+                _papers
+            )
+
+
+        // =========================================
+        // DELETE FROM SUPABASE
+        // =========================================
+
+        try {
+
+            SupabaseClientProvider
+                .postgrest
+                .from("past_year_papers")
+                .delete {
+
+                    filter {
+
+                        eq(
+                            "id",
+                            paperId
+                        )
+                    }
+                }
+
+
+            Log.d(
+                "EduHubSupabase",
+                "Deleted past year paper '$paperId' from Supabase"
+            )
+
+        } catch (e: Exception) {
+
+            Log.e(
+                "EduHubSupabase",
+                "Failed to delete past year paper: ${e.message}"
+            )
         }
     }
 
