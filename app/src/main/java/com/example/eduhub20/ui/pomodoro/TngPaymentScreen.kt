@@ -85,7 +85,7 @@ fun TngPaymentScreen(
     val scope = rememberCoroutineScope()
     val currentUser = AuthRepository.currentUser.collectAsState().value
 
-    val expectedReceiver = "CHONG YI JIE"
+    val expectedReceiver = "KHU JUN ZONG"
     val expectedAmount = "7.00"
 
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }

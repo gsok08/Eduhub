@@ -187,7 +187,7 @@ object EduHubAiGenerator {
             try {
                 val prompt = """
                     You are an expert university professor creating an exam revision quiz.
-                    Based on these notes, generate 4-5 challenging multiple-choice questions in JSON.
+                    Based on these notes, generate exactly 10 challenging multiple-choice questions in JSON.
                     
                     Course Code: $courseCode
                     Title: ${note.title}
@@ -200,7 +200,7 @@ object EduHubAiGenerator {
                       "questions": [
                         {
                           "questionNumber": 1,
-                          "totalQuestions": 4,
+                          "totalQuestions": 10,
                           "questionText": "Clear question text?",
                           "tableOrDiagram": null,
                           "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
@@ -538,75 +538,148 @@ object EduHubAiGenerator {
     }
 
     private fun generateLocalQuiz(note: AiGeneratedNote, courseCode: String): Quiz {
+        val total = 10
         val questions = mutableListOf<QuizQuestion>()
 
-        questions.add(
-            QuizQuestion(
-                questionNumber = 1,
-                totalQuestions = 4,
-                questionText = "What is the primary learning objective of ${note.title}?",
-                tableOrDiagram = null,
-                options = listOf(
-                    "A) Mastering foundational concepts and practical implementation",
-                    "B) Memorizing syntax definitions without understanding",
-                    "C) Skipping design patterns and error handling",
-                    "D) None of the above"
-                ),
-                correctOptionIndex = 0,
-                reviewExplanation = "Mastering foundational concepts and practical implementation form the primary learning outcome of ${note.title}."
-            )
-        )
+        questions.add(QuizQuestion(
+            questionNumber = 1, totalQuestions = total,
+            questionText = "What is the primary learning objective of ${note.title}?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) Mastering foundational concepts and practical implementation",
+                "B) Memorizing syntax definitions without understanding",
+                "C) Skipping design patterns and error handling",
+                "D) None of the above"
+            ),
+            correctOptionIndex = 0,
+            reviewExplanation = "Mastering foundational concepts and practical implementation form the primary learning outcome of ${note.title}."
+        ))
 
-        questions.add(
-            QuizQuestion(
-                questionNumber = 2,
-                totalQuestions = 4,
-                questionText = "Which software architecture principle emphasizes high cohesion and low coupling?",
-                tableOrDiagram = null,
-                options = listOf(
-                    "A) Monolithic hardcoding",
-                    "B) Modular Separation of Concerns",
-                    "C) Unidirectional spaghetti routing",
-                    "D) Global mutable singleton states"
-                ),
-                correctOptionIndex = 1,
-                reviewExplanation = "Modular separation of concerns ensures components remain independent, testable, and maintainable."
-            )
-        )
+        questions.add(QuizQuestion(
+            questionNumber = 2, totalQuestions = total,
+            questionText = "Which software architecture principle emphasizes high cohesion and low coupling?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) Monolithic hardcoding",
+                "B) Modular Separation of Concerns",
+                "C) Unidirectional spaghetti routing",
+                "D) Global mutable singleton states"
+            ),
+            correctOptionIndex = 1,
+            reviewExplanation = "Modular separation of concerns ensures components remain independent, testable, and maintainable."
+        ))
 
-        questions.add(
-            QuizQuestion(
-                questionNumber = 3,
-                totalQuestions = 4,
-                questionText = "In modern mobile application architecture, what is the primary benefit of an offline-first design?",
-                tableOrDiagram = null,
-                options = listOf(
-                    "A) The app continues working seamlessly without internet and syncs when reconnected",
-                    "B) It disables network access permanently",
-                    "C) It consumes infinite local cache storage",
-                    "D) It prevents cloud database backups"
-                ),
-                correctOptionIndex = 0,
-                reviewExplanation = "Offline-first architecture caches state locally so users can read and write data uninterrupted, synchronizing updates once connection is restored."
-            )
-        )
+        questions.add(QuizQuestion(
+            questionNumber = 3, totalQuestions = total,
+            questionText = "In modern mobile application architecture, what is the primary benefit of an offline-first design?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) The app continues working seamlessly without internet and syncs when reconnected",
+                "B) It disables network access permanently",
+                "C) It consumes infinite local cache storage",
+                "D) It prevents cloud database backups"
+            ),
+            correctOptionIndex = 0,
+            reviewExplanation = "Offline-first architecture caches state locally so users can read and write data uninterrupted, synchronizing updates once connection is restored."
+        ))
 
-        questions.add(
-            QuizQuestion(
-                questionNumber = 4,
-                totalQuestions = 4,
-                questionText = "What does the abbreviation 'API' stand for in software engineering?",
-                tableOrDiagram = null,
-                options = listOf(
-                    "A) Application Programming Interface",
-                    "B) Automated Program Instructions",
-                    "C) Abstract Protocol Identifier",
-                    "D) Asynchronous Pipeline Integrator"
-                ),
-                correctOptionIndex = 0,
-                reviewExplanation = "API stands for Application Programming Interface, providing standard contracts for software components to communicate."
-            )
-        )
+        questions.add(QuizQuestion(
+            questionNumber = 4, totalQuestions = total,
+            questionText = "What does the abbreviation 'API' stand for in software engineering?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) Application Programming Interface",
+                "B) Automated Program Instructions",
+                "C) Abstract Protocol Identifier",
+                "D) Asynchronous Pipeline Integrator"
+            ),
+            correctOptionIndex = 0,
+            reviewExplanation = "API stands for Application Programming Interface, providing standard contracts for software components to communicate."
+        ))
+
+        questions.add(QuizQuestion(
+            questionNumber = 5, totalQuestions = total,
+            questionText = "Which design pattern separates business logic from the UI in Android development?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) Singleton",
+                "B) MVVM (Model-View-ViewModel)",
+                "C) Factory Method",
+                "D) Observer"
+            ),
+            correctOptionIndex = 1,
+            reviewExplanation = "MVVM (Model-View-ViewModel) is the recommended Android architecture pattern that keeps UI logic separate from business logic via the ViewModel layer."
+        ))
+
+        questions.add(QuizQuestion(
+            questionNumber = 6, totalQuestions = total,
+            questionText = "What is the purpose of a foreign key in a relational database?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) To encrypt data stored in the table",
+                "B) To establish a link between records in two tables",
+                "C) To uniquely identify each row in the same table",
+                "D) To index all columns for faster reads"
+            ),
+            correctOptionIndex = 1,
+            reviewExplanation = "A foreign key creates a referential integrity constraint between two tables, linking a column in one table to the primary key of another."
+        ))
+
+        questions.add(QuizQuestion(
+            questionNumber = 7, totalQuestions = total,
+            questionText = "Which HTTP method is typically used to update an existing resource in a RESTful API?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) GET",
+                "B) DELETE",
+                "C) PUT / PATCH",
+                "D) POST"
+            ),
+            correctOptionIndex = 2,
+            reviewExplanation = "PUT replaces a resource entirely while PATCH applies partial updates. Both are used to modify existing REST resources."
+        ))
+
+        questions.add(QuizQuestion(
+            questionNumber = 8, totalQuestions = total,
+            questionText = "In object-oriented programming, what does 'encapsulation' mean?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) A class can extend multiple parent classes",
+                "B) Bundling data and the methods that operate on it within a single unit, hiding internal details",
+                "C) Defining methods without implementation",
+                "D) Allowing any class to access any variable"
+            ),
+            correctOptionIndex = 1,
+            reviewExplanation = "Encapsulation bundles fields and methods into a class and restricts direct access to internal data, exposing only a controlled public interface."
+        ))
+
+        questions.add(QuizQuestion(
+            questionNumber = 9, totalQuestions = total,
+            questionText = "What is the role of a ViewModel in Jetpack Compose / Android architecture?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) It directly renders UI components on screen",
+                "B) It holds UI-related data that survives configuration changes and exposes state to the UI",
+                "C) It replaces the database layer",
+                "D) It handles push notifications only"
+            ),
+            correctOptionIndex = 1,
+            reviewExplanation = "The ViewModel retains UI state across configuration changes (e.g. rotation) and mediates between the data layer and the composable UI."
+        ))
+
+        questions.add(QuizQuestion(
+            questionNumber = 10, totalQuestions = total,
+            questionText = "Which of the following best describes 'version control' in software development?",
+            tableOrDiagram = null,
+            options = listOf(
+                "A) Tracking and managing changes to source code over time",
+                "B) Setting the app version number in build.gradle",
+                "C) Controlling access levels of team members",
+                "D) Compiling code into multiple platform binaries"
+            ),
+            correctOptionIndex = 0,
+            reviewExplanation = "Version control systems (e.g. Git) track every change to source code, enabling collaboration, rollback, and history review."
+        ))
 
         return Quiz(
             id = UUID.randomUUID().toString(),
@@ -618,4 +691,4 @@ object EduHubAiGenerator {
             scorePercentage = 0
         )
     }
-}
+}
