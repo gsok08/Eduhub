@@ -82,6 +82,36 @@ data class EnrolledStudent(
 )
 
 @Serializable
+data class ExamDto(
+    val id: String,
+    @SerialName("user_id")
+    val userId: String,
+    val name: String,
+    val date: Long
+)
+
+@Serializable
+data class TaskDto(
+    val id: String,
+    @SerialName("user_id")
+    val userId: String,
+    val name: String,
+    val date: Long,
+    @SerialName("is_completed")
+    val isCompleted: Boolean = false
+)
+
+@Serializable
+data class ReminderDto(
+    val id: String,
+    @SerialName("user_id")
+    val userId: String,
+    val name: String,
+    val date: Long,
+    val time: String
+)
+
+@Serializable
 data class AnnouncementDto(
     val id: String,
     @SerialName("course_id")
@@ -1916,24 +1946,214 @@ object NoteQuizRepository {
 // Calendar Repository
 // ─────────────────────────────────────────────────────────────────────────────
 object CalendarRepository {
-    private val _tasks = mutableListOf<CalendarTask>()
-    private val _countdowns = mutableListOf<ExamCountdown>()
+    private val _exams = MutableStateFlow<List<ExamEntity>>(emptyList())
+    val exams: StateFlow<List<ExamEntity>> = _exams.asStateFlow()
 
-    fun getTasks(date: String = ""): List<CalendarTask> =
-        if (date.isBlank()) _tasks.toList() else _tasks.filter { it.date == date }
+    private val _tasks = MutableStateFlow<List<TaskEntity>>(emptyList())
+    val tasks: StateFlow<List<TaskEntity>> = _tasks.asStateFlow()
 
-    fun toggleTask(id: String) {
-        val i = _tasks.indexOfFirst { it.id == id }
-        if (i != -1) _tasks[i] = _tasks[i].copy(isCompleted = !_tasks[i].isCompleted)
+    private val _reminders = MutableStateFlow<List<ReminderEntity>>(emptyList())
+    val reminders: StateFlow<List<ReminderEntity>> = _reminders.asStateFlow()
+
+    suspend fun fetchExams(userId: String) = withContext(Dispatchers.IO) {
+        try {
+            val allExams = SupabaseClientProvider.postgrest.from("exams")
+                .select()
+                .decodeList<ExamDto>()
+
+            val entities = allExams.filter { it.userId == userId }.map { dto ->
+                ExamEntity(
+                    id = dto.id,
+                    userId = dto.userId,
+                    name = dto.name,
+                    date = dto.date
+                )
+            }
+            _exams.value = entities
+            Log.d("CalendarRepo", "Fetched ${entities.size} exams")
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to fetch exams: ${e.message}")
+            _exams.value = emptyList()
+        }
     }
 
-    fun addTask(title: String, date: String) {
-        _tasks.add(CalendarTask(UUID.randomUUID().toString(), title, false, date))
+    suspend fun fetchTasks(userId: String) = withContext(Dispatchers.IO) {
+        try {
+            val allTasks = SupabaseClientProvider.postgrest.from("tasks")
+                .select()
+                .decodeList<TaskDto>()
+
+            val entities = allTasks.filter { it.userId == userId }.map { dto ->
+                TaskEntity(
+                    id = dto.id,
+                    userId = dto.userId,
+                    name = dto.name,
+                    date = dto.date,
+                    isCompleted = dto.isCompleted
+                )
+            }
+            _tasks.value = entities
+            Log.d("CalendarRepo", "Fetched ${entities.size} tasks")
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to fetch tasks: ${e.message}")
+            _tasks.value = emptyList()
+        }
     }
 
-    fun getCountdowns(): List<ExamCountdown> = _countdowns.toList()
+    suspend fun fetchReminders(userId: String) = withContext(Dispatchers.IO) {
+        try {
+            val allReminders = SupabaseClientProvider.postgrest.from("reminders")
+                .select()
+                .decodeList<ReminderDto>()
 
-    fun addCountdown(cd: ExamCountdown) = _countdowns.add(0, cd)
+            val entities = allReminders.filter { it.userId == userId }.map { dto ->
+                ReminderEntity(
+                    id = dto.id,
+                    userId = dto.userId,
+                    name = dto.name,
+                    date = dto.date,
+                    time = dto.time
+                )
+            }
+            _reminders.value = entities
+            Log.d("CalendarRepo", "Fetched ${entities.size} reminders")
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to fetch reminders: ${e.message}")
+            _reminders.value = emptyList()
+        }
+    }
+
+    suspend fun saveExam(exam: ExamEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val dto = ExamDto(
+                id = exam.id,
+                userId = exam.userId,
+                name = exam.name,
+                date = exam.date
+            )
+            SupabaseClientProvider.postgrest.from("exams").insert(dto)
+            _exams.value = _exams.value + exam
+            Log.d("CalendarRepo", "Saved exam: ${exam.name}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to save exam: ${e.message}")
+            Result.failure(Exception("Failed to save exam: ${e.message}"))
+        }
+    }
+
+    suspend fun saveTask(task: TaskEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val dto = TaskDto(
+                id = task.id,
+                userId = task.userId,
+                name = task.name,
+                date = task.date,
+                isCompleted = task.isCompleted
+            )
+            SupabaseClientProvider.postgrest.from("tasks").insert(dto)
+            _tasks.value = _tasks.value + task
+            Log.d("CalendarRepo", "Saved task: ${task.name}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to save task: ${e.message}")
+            Result.failure(Exception("Failed to save task: ${e.message}"))
+        }
+    }
+
+    suspend fun saveReminder(reminder: ReminderEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val dto = ReminderDto(
+                id = reminder.id,
+                userId = reminder.userId,
+                name = reminder.name,
+                date = reminder.date,
+                time = reminder.time
+            )
+            SupabaseClientProvider.postgrest.from("reminders").insert(dto)
+            _reminders.value = _reminders.value + reminder
+            Log.d("CalendarRepo", "Saved reminder: ${reminder.name}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to save reminder: ${e.message}")
+            Result.failure(Exception("Failed to save reminder: ${e.message}"))
+        }
+    }
+
+    suspend fun updateTask(task: TaskEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("tasks")
+                .update(
+                    mapOf("is_completed" to task.isCompleted)
+                ) {
+                    filter { eq("id", task.id) }
+                }
+            _tasks.value = _tasks.value.map {
+                if (it.id == task.id) task else it
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to update task: ${e.message}")
+            Result.failure(Exception("Failed to update task: ${e.message}"))
+        }
+    }
+
+    suspend fun deleteExam(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("exams").delete {
+                filter { eq("id", id) }
+            }
+            _exams.value = _exams.value.filter { it.id != id }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to delete exam: ${e.message}")
+            Result.failure(Exception("Failed to delete exam: ${e.message}"))
+        }
+    }
+
+    suspend fun deleteTask(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("tasks").delete {
+                filter { eq("id", id) }
+            }
+            _tasks.value = _tasks.value.filter { it.id != id }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to delete task: ${e.message}")
+            Result.failure(Exception("Failed to delete task: ${e.message}"))
+        }
+    }
+
+    suspend fun deleteReminder(id: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("reminders").delete {
+                filter { eq("id", id) }
+            }
+            _reminders.value = _reminders.value.filter { it.id != id }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to delete reminder: ${e.message}")
+            Result.failure(Exception("Failed to delete reminder: ${e.message}"))
+        }
+    }
+
+    suspend fun clearAll(userId: String) = withContext(Dispatchers.IO) {
+        try {
+            SupabaseClientProvider.postgrest.from("exams").delete {
+                filter { eq("user_id", userId) }
+            }
+            SupabaseClientProvider.postgrest.from("tasks").delete {
+                filter { eq("user_id", userId) }
+            }
+            SupabaseClientProvider.postgrest.from("reminders").delete {
+                filter { eq("user_id", userId) }
+            }
+            _exams.value = emptyList()
+            _tasks.value = emptyList()
+            _reminders.value = emptyList()
+        } catch (e: Exception) {
+            Log.e("CalendarRepo", "Failed to clear data: ${e.message}")
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
