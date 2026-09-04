@@ -27,8 +27,8 @@ CORS(app)  # Enable Cross-Origin Resource Sharing for Android app requests
 
 # Configuration
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
-MODELS_TO_TRY = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite"]
+GEMINI_MODEL = "gemini-3.6-flash"
+MODELS_TO_TRY = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
 def get_local_ip():
     """Detects the laptop's LAN IP address on Wi-Fi/Ethernet."""
@@ -82,7 +82,7 @@ def call_gemini_rest(prompt: str, pdf_base64: str = None, api_key: str = None) -
     for model_name in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={key}"
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=45)
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
             if response.status_code == 200:
                 data = response.json()
                 candidates = data.get("candidates", [])
@@ -141,13 +141,33 @@ def generate_note():
         client_api_key = data.get("apiKey") or request.headers.get("X-Gemini-Key")
 
         pdf_base64 = None
+        extracted_pdf_text = ""
         if pdf_url and pdf_url.startswith("http"):
             try:
-                pdf_res = requests.get(pdf_url, timeout=20)
+                pdf_res = requests.get(pdf_url, timeout=25)
                 if pdf_res.status_code == 200 and len(pdf_res.content) > 0:
                     pdf_base64 = base64.b64encode(pdf_res.content).decode("utf-8")
+                    try:
+                        import pypdf
+                        from io import BytesIO
+                        reader = pypdf.PdfReader(BytesIO(pdf_res.content))
+                        pages_text = []
+                        for p in reader.pages[:25]:
+                            t = p.extract_text()
+                            if t:
+                                pages_text.append(t.strip())
+                        if pages_text:
+                            extracted_pdf_text = "\n\n".join(pages_text)
+                            print(f"[PDF] Extracted {len(extracted_pdf_text)} characters from {len(reader.pages)} pages")
+                    except Exception as pe:
+                        print(f"[PDF] Text extraction error: {pe}")
             except Exception as e:
                 print(f"[Warning] Failed to fetch PDF URL {pdf_url}: {e}")
+
+        # Combine text from slides and lecturer notes
+        full_content = (raw_content + "\n\n" + extracted_pdf_text).strip()
+        if not full_content:
+            full_content = f"Lecture slide content for {chapter_title} - {course_code}: {course_title}"
 
         prompt = f"""
 You are an expert university professor and AI tutor. Analyze this lecture material and content thoroughly.
@@ -158,7 +178,8 @@ Course Code: {course_code}
 Course Title: {course_title}
 Chapter Title: {chapter_title}
 Semester: {semester_period}
-Lecturer Notes / Text: {raw_content}
+Lecture Content & Slides:
+{full_content[:15000]}
 
 Return ONLY a JSON object with this exact schema:
 {{
@@ -246,7 +267,7 @@ def generate_quiz():
 
         prompt = f"""
 You are an expert university professor creating an exam revision quiz.
-Based on the following lecture study note, generate 4-5 multiple-choice questions in JSON.
+Based on the following lecture study note, generate exactly 10 multiple-choice questions in JSON.
 
 Course Code: {course_code}
 Title: {title}
@@ -259,7 +280,7 @@ Return ONLY a JSON object with this exact schema:
   "questions": [
     {{
       "questionNumber": 1,
-      "totalQuestions": 4,
+      "totalQuestions": 10,
       "questionText": "Clear question text?",
       "tableOrDiagram": null,
       "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
@@ -276,10 +297,10 @@ Return ONLY a JSON object with this exact schema:
             questions = parsed.get("questions", [])
         except Exception as e:
             print(f"[Fallback] Gemini Quiz call error: {e}. Generating local quiz...")
+            total_q = 10
             questions = [
                 {
-                    "questionNumber": 1,
-                    "totalQuestions": 4,
+                    "questionNumber": 1, "totalQuestions": total_q,
                     "questionText": f"What is the primary learning objective of {title}?",
                     "tableOrDiagram": None,
                     "options": [
@@ -292,8 +313,7 @@ Return ONLY a JSON object with this exact schema:
                     "reviewExplanation": f"Mastering foundational concepts and practical implementation forms the primary learning outcome of {title}."
                 },
                 {
-                    "questionNumber": 2,
-                    "totalQuestions": 4,
+                    "questionNumber": 2, "totalQuestions": total_q,
                     "questionText": "Which software architecture principle emphasizes high cohesion and low coupling?",
                     "tableOrDiagram": None,
                     "options": [
@@ -306,8 +326,7 @@ Return ONLY a JSON object with this exact schema:
                     "reviewExplanation": "Modular separation of concerns ensures components remain independent, testable, and maintainable."
                 },
                 {
-                    "questionNumber": 3,
-                    "totalQuestions": 4,
+                    "questionNumber": 3, "totalQuestions": total_q,
                     "questionText": "In modern mobile application architecture, what is the primary benefit of an offline-first design?",
                     "tableOrDiagram": None,
                     "options": [
@@ -320,8 +339,7 @@ Return ONLY a JSON object with this exact schema:
                     "reviewExplanation": "Offline-first architecture caches state locally so users can read and write data uninterrupted, synchronizing updates once connection is restored."
                 },
                 {
-                    "questionNumber": 4,
-                    "totalQuestions": 4,
+                    "questionNumber": 4, "totalQuestions": total_q,
                     "questionText": "What does the abbreviation 'API' stand for in software engineering?",
                     "tableOrDiagram": None,
                     "options": [
@@ -332,6 +350,84 @@ Return ONLY a JSON object with this exact schema:
                     ],
                     "correctOptionIndex": 0,
                     "reviewExplanation": "API stands for Application Programming Interface, providing standard contracts for software components to communicate."
+                },
+                {
+                    "questionNumber": 5, "totalQuestions": total_q,
+                    "questionText": "Which design pattern separates business logic from the UI in Android development?",
+                    "tableOrDiagram": None,
+                    "options": [
+                        "A) Singleton",
+                        "B) MVVM (Model-View-ViewModel)",
+                        "C) Factory Method",
+                        "D) Observer"
+                    ],
+                    "correctOptionIndex": 1,
+                    "reviewExplanation": "MVVM keeps UI logic separate from business logic via the ViewModel layer."
+                },
+                {
+                    "questionNumber": 6, "totalQuestions": total_q,
+                    "questionText": "What is the purpose of a foreign key in a relational database?",
+                    "tableOrDiagram": None,
+                    "options": [
+                        "A) To encrypt data stored in the table",
+                        "B) To establish a link between records in two tables",
+                        "C) To uniquely identify each row in the same table",
+                        "D) To index all columns for faster reads"
+                    ],
+                    "correctOptionIndex": 1,
+                    "reviewExplanation": "A foreign key creates a referential integrity constraint between two tables."
+                },
+                {
+                    "questionNumber": 7, "totalQuestions": total_q,
+                    "questionText": "Which HTTP method is typically used to update an existing resource in a RESTful API?",
+                    "tableOrDiagram": None,
+                    "options": [
+                        "A) GET",
+                        "B) DELETE",
+                        "C) PUT / PATCH",
+                        "D) POST"
+                    ],
+                    "correctOptionIndex": 2,
+                    "reviewExplanation": "PUT replaces a resource entirely while PATCH applies partial updates."
+                },
+                {
+                    "questionNumber": 8, "totalQuestions": total_q,
+                    "questionText": "In object-oriented programming, what does 'encapsulation' mean?",
+                    "tableOrDiagram": None,
+                    "options": [
+                        "A) A class can extend multiple parent classes",
+                        "B) Bundling data and methods into a single unit, hiding internal details",
+                        "C) Defining methods without implementation",
+                        "D) Allowing any class to access any variable"
+                    ],
+                    "correctOptionIndex": 1,
+                    "reviewExplanation": "Encapsulation bundles fields and methods into a class and restricts direct access to internal data."
+                },
+                {
+                    "questionNumber": 9, "totalQuestions": total_q,
+                    "questionText": "What is the role of a ViewModel in Jetpack Compose / Android architecture?",
+                    "tableOrDiagram": None,
+                    "options": [
+                        "A) It directly renders UI components on screen",
+                        "B) It holds UI-related data that survives configuration changes and exposes state",
+                        "C) It replaces the database layer",
+                        "D) It handles push notifications only"
+                    ],
+                    "correctOptionIndex": 1,
+                    "reviewExplanation": "The ViewModel retains UI state across configuration changes."
+                },
+                {
+                    "questionNumber": 10, "totalQuestions": total_q,
+                    "questionText": "Which of the following best describes 'version control' in software development?",
+                    "tableOrDiagram": None,
+                    "options": [
+                        "A) Tracking and managing changes to source code over time",
+                        "B) Setting the app version number in build.gradle",
+                        "C) Controlling access levels of team members",
+                        "D) Compiling code into multiple platform binaries"
+                    ],
+                    "correctOptionIndex": 0,
+                    "reviewExplanation": "Version control systems track every change to source code, enabling collaboration and rollback."
                 }
             ]
 
@@ -364,12 +460,12 @@ if __name__ == "__main__":
     local_ip = get_local_ip()
     port = int(os.environ.get("PORT", 5000))
     print("=" * 65)
-    print("🚀 EduHub 2.0 - AI Python Flask Backend Running!")
+    print("EduHub 2.0 - AI Python Flask Backend Running!")
     print("-" * 65)
-    print(f"📍 Local Machine:     http://127.0.0.1:{port}")
-    print(f"📱 Phone / Wi-Fi IP:  http://{local_ip}:{port}")
-    print(f"🤖 Model:             {GEMINI_MODEL}")
+    print(f"Local Machine:     http://127.0.0.1:{port}")
+    print(f"Phone / Wi-Fi IP:  http://{local_ip}:{port}")
+    print(f"Model:             {GEMINI_MODEL}")
     print("=" * 65)
-    print(f"👉 Enter 'http://{local_ip}:{port}' into your EduHub App (🔑 Icon) on your phone!")
+    print(f"Enter 'http://{local_ip}:{port}' into your EduHub App on your phone!")
     print("=" * 65)
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=False)

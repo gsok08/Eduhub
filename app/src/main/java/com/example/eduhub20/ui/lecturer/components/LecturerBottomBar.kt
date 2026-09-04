@@ -9,6 +9,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import com.example.eduhub20.ui.theme.EduHubPrimary
 
 data class LecturerBottomItem(
@@ -35,7 +38,7 @@ fun LecturerBottomBar(
         ),
 
         LecturerBottomItem(
-            title = "PastYearPaper",
+            title = "Past Papers",
             icon = Icons.Default.Description
         ),
 
@@ -69,7 +72,12 @@ fun LecturerBottomBar(
 
                 label = {
                     Text(
-                        text = item.title
+                        text = item.title,
+                        fontSize = 11.sp,
+                        fontWeight = if (selectedItem == index) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
 

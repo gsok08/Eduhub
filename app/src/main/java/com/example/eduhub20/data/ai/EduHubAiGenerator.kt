@@ -269,8 +269,8 @@ object EduHubAiGenerator {
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
             conn.doOutput = true
-            conn.connectTimeout = 12000
-            conn.readTimeout = 25000
+            conn.connectTimeout = 30000
+            conn.readTimeout = 75000
 
             val requestBody = buildJsonObject {
                 put("courseCode", lectureNote.courseCode)
@@ -322,8 +322,8 @@ object EduHubAiGenerator {
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json")
             conn.doOutput = true
-            conn.connectTimeout = 12000
-            conn.readTimeout = 25000
+            conn.connectTimeout = 30000
+            conn.readTimeout = 75000
 
             val requestBody = buildJsonObject {
                 put("courseCode", courseCode)
@@ -379,14 +379,7 @@ object EduHubAiGenerator {
     }
 
     private fun callGeminiApi(promptText: String, apiKey: String, pdfBase64: String? = null): String? {
-        val endpoint = "${GeminiConfig.GEMINI_ENDPOINT}?key=$apiKey"
-        val url = URL(endpoint)
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.doOutput = true
-        conn.connectTimeout = 25000
-        conn.readTimeout = 35000
+        val models = GeminiConfig.FALLBACK_MODELS
 
         val requestBody = buildJsonObject {
             putJsonArray("contents") {
@@ -413,21 +406,38 @@ object EduHubAiGenerator {
             }
         }.toString()
 
-        OutputStreamWriter(conn.outputStream).use { writer ->
-            writer.write(requestBody)
-            writer.flush()
-        }
+        for (model in models) {
+            val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+            try {
+                val url = URL(endpoint)
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                conn.connectTimeout = 30000
+                conn.readTimeout = 65000
 
-        val responseCode = conn.responseCode
-        return if (responseCode == HttpURLConnection.HTTP_OK) {
-            BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
-                reader.readText()
+                OutputStreamWriter(conn.outputStream).use { writer ->
+                    writer.write(requestBody)
+                    writer.flush()
+                }
+
+                val responseCode = conn.responseCode
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val result = BufferedReader(InputStreamReader(conn.inputStream)).use { reader ->
+                        reader.readText()
+                    }
+                    Log.d("EduHubAiGenerator", "✅ Gemini API call succeeded with model $model")
+                    return result
+                } else {
+                    val err = conn.errorStream?.use { it.bufferedReader().readText() }
+                    Log.w("EduHubAiGenerator", "Model $model returned error ($responseCode): $err")
+                }
+            } catch (e: Exception) {
+                Log.w("EduHubAiGenerator", "Model $model request failed: ${e.message}")
             }
-        } else {
-            val err = conn.errorStream?.use { it.bufferedReader().readText() }
-            Log.e("EduHubAiGenerator", "Gemini API Error ($responseCode): $err")
-            null
         }
+        return null
     }
 
     private fun cleanJsonString(raw: String): String {

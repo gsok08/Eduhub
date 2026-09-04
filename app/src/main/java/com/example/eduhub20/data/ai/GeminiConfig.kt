@@ -15,8 +15,15 @@ object GeminiConfig {
     // Flask Backend Server URL (default emulator: 10.0.2.2:5000, physical phone: http://192.168.x.x:5000)
     var BACKEND_URL: String = "http://10.0.2.2:5000"
 
-    // Official recommended multimodal model endpoint
+    // Official working Gemini Flash model endpoint
     const val GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+
+    val FALLBACK_MODELS = listOf(
+        "gemini-3.6-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
+    )
 
     /** True when a Gemini API key is configured — gates all AI features. */
     val isAvailable: Boolean get() = GEMINI_API_KEY.isNotBlank()

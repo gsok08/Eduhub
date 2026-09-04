@@ -78,20 +78,7 @@ fun AnnouncementScreen(
         )
 
         Spacer(
-            modifier = Modifier.height(20.dp)
-        )
-
-        OutlinedButton(
-            onClick = {},
-            modifier = Modifier.fillMaxWidth()
-        ){
-            Text(
-                "+ Add File"
-            )
-        }
-
-        Spacer(
-            modifier = Modifier.height(25.dp)
+            modifier = Modifier.height(24.dp)
         )
 
         Button(

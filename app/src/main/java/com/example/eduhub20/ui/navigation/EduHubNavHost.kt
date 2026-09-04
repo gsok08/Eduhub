@@ -539,6 +539,11 @@ fun EduHubNavHost(
                             )
 
                         },
+
+                        onProfileClick = {
+                            navController.navigate(Screen.Profile.route)
+                        },
+
                         modifier = Modifier.padding(paddingValues)
                     )
 

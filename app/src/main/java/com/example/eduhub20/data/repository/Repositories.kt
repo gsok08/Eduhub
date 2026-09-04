@@ -294,44 +294,32 @@ object AuthRepository {
     val currentSessionId: String get() = _currentSessionId.value
 
     suspend fun registerActiveSession(userId: String): String = withContext(Dispatchers.IO) {
-        val nowIso = java.time.Instant.now().toString()
-        _currentSessionId.value = nowIso
+        val sessionId = UUID.randomUUID().toString()
+        _currentSessionId.value = sessionId
 
-        // 1. Try updating both active_session_id and updated_at
+        // 1. Try updating active_session_id in profiles
         try {
             val withCol = buildJsonObject {
-                put("updated_at", nowIso)
-                put("active_session_id", nowIso)
+                put("active_session_id", sessionId)
             }
             SupabaseClientProvider.postgrest.from("profiles").update(withCol) {
                 filter { eq("id", userId) }
             }
-            Log.d("AuthRepository", "✅ Successfully updated active_session_id and updated_at to $nowIso")
-        } catch (_: Exception) {
-            // 2. Fallback: update updated_at (which is guaranteed to exist in Supabase profiles table)
-            try {
-                val timestampOnly = buildJsonObject {
-                    put("updated_at", nowIso)
-                }
-                SupabaseClientProvider.postgrest.from("profiles").update(timestampOnly) {
-                    filter { eq("id", userId) }
-                }
-                Log.d("AuthRepository", "✅ Successfully updated profiles.updated_at to $nowIso")
-            } catch (e: Exception) {
-                Log.e("AuthRepository", "Failed to update session in profiles: ${e.message}")
-            }
+            Log.d("AuthRepository", "✅ Successfully updated active_session_id to $sessionId")
+        } catch (e: Exception) {
+            Log.d("AuthRepository", "profiles.active_session_id update: ${e.message}")
         }
 
-        // 3. Also update Supabase Auth user_metadata so user record carries active_session_id
+        // 2. Also update Supabase Auth user_metadata so user record carries active_session_id
         try {
             SupabaseClientProvider.auth.updateUser {
                 data = buildJsonObject {
-                    put("active_session_id", nowIso)
+                    put("active_session_id", sessionId)
                 }
             }
         } catch (_: Exception) {}
 
-        nowIso
+        sessionId
     }
 
     fun restoreUser(user: EduHubUser, sessionId: String = "") {
@@ -345,11 +333,8 @@ object AuthRepository {
                         .select { filter { eq("id", user.id) } }
                         .decodeSingleOrNull<JsonObject>()
                     val dbSession = jsonObject?.get("active_session_id")?.jsonPrimitive?.contentOrNull
-                    val dbUpdatedAt = jsonObject?.get("updated_at")?.jsonPrimitive?.contentOrNull
-                    _currentSessionId.value = when {
-                        !dbSession.isNullOrBlank() -> dbSession
-                        !dbUpdatedAt.isNullOrBlank() -> dbUpdatedAt
-                        else -> ""
+                    if (!dbSession.isNullOrBlank()) {
+                        _currentSessionId.value = dbSession
                     }
                     Log.d("AuthRepository", "Restored session for ${user.email}: ${_currentSessionId.value}")
                 } catch (_: Exception) {}
@@ -370,26 +355,11 @@ object AuthRepository {
                 .decodeSingleOrNull<JsonObject>()
 
             if (jsonObject != null) {
-                // Check 1: active_session_id if populated in database
                 val dbSession = jsonObject["active_session_id"]?.jsonPrimitive?.contentOrNull
                 if (!dbSession.isNullOrBlank()) {
                     val valid = dbSession == localSession
                     Log.d("AuthRepository", "Single-device check (active_session_id): db=$dbSession vs local=$localSession => valid=$valid")
                     return@withContext valid
-                }
-
-                // Check 2: updated_at timestamp (guaranteed in Supabase profiles)
-                val dbUpdatedAt = jsonObject["updated_at"]?.jsonPrimitive?.contentOrNull
-                if (!dbUpdatedAt.isNullOrBlank()) {
-                    val matches = try {
-                        val dbInstant = java.time.Instant.parse(dbUpdatedAt)
-                        val localInstant = java.time.Instant.parse(localSession)
-                        dbInstant == localInstant
-                    } catch (_: Exception) {
-                        dbUpdatedAt.startsWith(localSession.substringBefore("Z"))
-                    }
-                    Log.d("AuthRepository", "Single-device check (updated_at): db=$dbUpdatedAt vs local=$localSession => valid=$matches")
-                    return@withContext matches
                 }
             }
         } catch (e: Exception) {
@@ -3089,50 +3059,11 @@ object PastYearRepository {
     private val _papers = mutableListOf<PastYearPaper>()
 
     init {
-        val local = EduHubLocalStorage.loadPastYearPapers()
-        if (local.isNotEmpty()) {
-            _papers.addAll(local)
-        } else {
-            // Sample exam papers
-            _papers.addAll(
-                listOf(
-                    PastYearPaper(
-                        id = "paper-1",
-                        courseCode = "AMIT3353",
-                        courseTitle = "Mobile Application Development",
-                        session = "2025/2026 Semester 1 Final Exam",
-                        subjectCategory = "Mobile App",
-                        year = "2025/2026",
-                        durationMinutes = 120,
-                        totalMarks = 100,
-                        pdfUrl = ""
-                    ),
-                    PastYearPaper(
-                        id = "paper-2",
-                        courseCode = "BACS2063",
-                        courseTitle = "Data Structures & Algorithms",
-                        session = "2024/2025 Semester 2 Final Exam",
-                        subjectCategory = "Computer Science",
-                        year = "2024/2025",
-                        durationMinutes = 150,
-                        totalMarks = 100,
-                        pdfUrl = ""
-                    ),
-                    PastYearPaper(
-                        id = "paper-3",
-                        courseCode = "BAIT1013",
-                        courseTitle = "Calculus and Linear Algebra",
-                        session = "2023/2024 Semester 1 Midterm Exam",
-                        subjectCategory = "Calculus",
-                        year = "2023/2024",
-                        durationMinutes = 90,
-                        totalMarks = 50,
-                        pdfUrl = ""
-                    )
-                )
-            )
-            EduHubLocalStorage.savePastYearPapers(_papers)
+        val local = EduHubLocalStorage.loadPastYearPapers().filterNot {
+            it.id in listOf("paper-1", "paper-2", "paper-3") || it.id.startsWith("paper-")
         }
+        _papers.addAll(local)
+        EduHubLocalStorage.savePastYearPapers(_papers)
     }
 
     fun getPapers(): List<PastYearPaper> = _papers.toList()
@@ -3352,13 +3283,11 @@ object PastYearRepository {
                     totalMarks = dto.totalMarks,
                     pdfUrl = dto.pdfUrl
                 )
-            }
-            if (mapped.isNotEmpty()) {
-                val merged = (mapped + _papers).distinctBy { it.id }
-                _papers.clear()
-                _papers.addAll(merged)
-                EduHubLocalStorage.savePastYearPapers(_papers)
-            }
+            }.filterNot { it.id in listOf("paper-1", "paper-2", "paper-3") || it.id.startsWith("paper-") }
+
+            _papers.clear()
+            _papers.addAll(mapped)
+            EduHubLocalStorage.savePastYearPapers(_papers)
         } catch (_: Exception) {}
         _papers.toList()
     }

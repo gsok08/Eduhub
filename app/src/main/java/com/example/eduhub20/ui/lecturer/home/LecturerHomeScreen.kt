@@ -25,6 +25,7 @@ import com.example.eduhub20.ui.theme.EduHubPrimary
 fun LecturerHomeScreen(
     lecturerName: String,
     onCourseClick: (String) -> Unit,
+    onProfileClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
 
@@ -108,23 +109,16 @@ fun LecturerHomeScreen(
 
 
             Surface(
-                modifier =
-                    Modifier.size(48.dp),
-                shape =
-                    RoundedCornerShape(50),
-                color =
-                    EduHubPrimary.copy(alpha = 0.15f)
+                modifier = Modifier
+                    .size(48.dp)
+                    .clickable { onProfileClick() },
+                shape = RoundedCornerShape(50),
+                color = EduHubPrimary.copy(alpha = 0.15f)
             ) {
-
-
-                Icon(
-                    Icons.Default.Person,
-                    contentDescription = null,
-                    modifier =
-                        Modifier.padding(12.dp),
-                    tint = EduHubPrimary
+                com.example.eduhub20.ui.common.UserAvatar(
+                    avatarUrl = currentUser?.avatarUrl,
+                    size = 48.dp
                 )
-
             }
 
         }

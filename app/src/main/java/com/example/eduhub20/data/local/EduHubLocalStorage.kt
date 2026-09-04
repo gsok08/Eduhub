@@ -291,7 +291,9 @@ object EduHubLocalStorage {
     fun loadPastYearPapers(): List<com.example.eduhub20.data.model.PastYearPaper> {
         return try {
             val serialized = prefs?.getString(KEY_PAST_PAPERS, null) ?: return emptyList()
-            json.decodeFromString<List<com.example.eduhub20.data.model.PastYearPaper>>(serialized)
+            json.decodeFromString<List<com.example.eduhub20.data.model.PastYearPaper>>(serialized).filterNot {
+                it.id in listOf("paper-1", "paper-2", "paper-3") || it.id.startsWith("paper-")
+            }
         } catch (_: Exception) {
             emptyList()
         }

@@ -107,26 +107,7 @@ fun CreateCourseScreen(
         )
 
         Spacer(
-            modifier = Modifier.height(20.dp)
-        )
-
-        OutlinedButton(
-            onClick = {},
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(
-                Icons.Default.Image,
-                contentDescription = null
-            )
-            Spacer(
-                modifier = Modifier.width(8.dp)
-            )
-            Text("Add Image")
-
-        }
-
-        Spacer(
-            modifier = Modifier.height(30.dp)
+            modifier = Modifier.height(24.dp)
         )
 
         Button(
