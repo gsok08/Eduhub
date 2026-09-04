@@ -102,14 +102,19 @@ class GroupNotificationService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = getSystemService(NotificationManager::class.java) ?: return
 
-            // 1. Background Sync Ongoing Channel (Low / Silent)
+            // 1. Background Sync Ongoing Channel (completely silent, hidden from shade)
+            // Delete & recreate to force IMPORTANCE_NONE on devices that had the old IMPORTANCE_MIN channel cached.
+            notificationManager.deleteNotificationChannel(CHANNEL_SYNC_ID)
             val syncChannel = NotificationChannel(
                 CHANNEL_SYNC_ID,
                 "EduHub Background Service",
-                NotificationManager.IMPORTANCE_MIN
+                NotificationManager.IMPORTANCE_NONE   // completely hidden from notification shade
             ).apply {
                 description = "Keeps EduHub listening for study group messages while app is closed"
                 setShowBadge(false)
+                setSound(null, null)                  // no sound
+                enableVibration(false)
+                enableLights(false)
             }
             notificationManager.createNotificationChannel(syncChannel)
 
@@ -133,7 +138,17 @@ class GroupNotificationService : Service() {
             .setContentText("Listening for group updates")
             .setSmallIcon(R.drawable.ic_school)
             .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET) // hide from lock screen
+            .setSilent(true)                                     // no sound, no vibration
             .setOngoing(true)
+            .setShowWhen(false)
+            // Android 12+: defer showing the notification so it stays hidden if service
+            // finishes quickly or is not user-initiated
+            .apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
+                }
+            }
             .build()
 
         try {
@@ -146,6 +161,10 @@ class GroupNotificationService : Service() {
             } else {
                 startForeground(SYNC_NOTIFICATION_ID, ongoingNotification)
             }
+            // After promoting to foreground, immediately dismiss the notification from the
+            // shade — the service stays alive but the notification card disappears.
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            nm?.cancel(SYNC_NOTIFICATION_ID)
         } catch (e: Exception) {
             Log.e(TAG, "startForeground error: ${e.message}")
         }
