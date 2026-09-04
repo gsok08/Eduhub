@@ -111,15 +111,23 @@ fun EduHubNavHost(
                             label = "NavIconScale"
                         )
 
+                        val startRoute = if (currentUser?.role == UserRole.LECTURER) {
+                            Screen.LecturerHome.route
+                        } else {
+                            Screen.Home.route
+                        }
+
                         NavigationBarItem(
                             selected = isSelected,
                             onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
+                                if (currentRoute != screen.route) {
+                                    navController.navigate(screen.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = (screen.route != startRoute)
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = (screen.route != startRoute)
                                     }
-                                    launchSingleTop = true
-                                    restoreState = true
                                 }
                             },
                             icon = {
@@ -182,7 +190,13 @@ fun EduHubNavHost(
                         navController.navigate(Screen.Profile.route)
                     },
                     onNavigateToCalendar = {
-                        navController.navigate(Screen.Calendar.route)
+                        navController.navigate(Screen.Calendar.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 )
             }
@@ -207,7 +221,23 @@ fun EduHubNavHost(
 
             // Tab 4: Calendar
             composable(Screen.Calendar.route) {
-                CalendarScreen()
+                CalendarScreen(
+                    onNavigateBack = {
+                        if (!navController.popBackStack()) {
+                            val startRoute = if (currentUser?.role == UserRole.LECTURER) {
+                                Screen.LecturerHome.route
+                            } else {
+                                Screen.Home.route
+                            }
+                            navController.navigate(startRoute) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    inclusive = false
+                                }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                )
             }
 
             // Tab 5: Group (Students Only)
@@ -299,9 +329,17 @@ fun EduHubNavHost(
             // Course Detail Flow
             composable(
                 route = Screen.CourseDetail.route,
-                arguments = listOf(navArgument("courseId") { type = NavType.StringType })
+                arguments = listOf(navArgument("courseId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                })
             ) { backStackEntry ->
-                val courseId = backStackEntry.arguments?.getString("courseId") ?: ""
+                val courseId = backStackEntry.arguments?.getString("courseId").orEmpty()
+                if (courseId.isBlank()) {
+                    // ID missing/corrupt — go back safely
+                    androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
                 CourseDetailScreen(
                     courseId = courseId,
                     onNavigateBack = { navController.popBackStack() },
@@ -314,9 +352,16 @@ fun EduHubNavHost(
             // AI Note Detail Screen
             composable(
                 route = Screen.NoteDetailAi.route,
-                arguments = listOf(navArgument("noteId") { type = NavType.StringType })
+                arguments = listOf(navArgument("noteId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                })
             ) { backStackEntry ->
-                val noteId = backStackEntry.arguments?.getString("noteId") ?: ""
+                val noteId = backStackEntry.arguments?.getString("noteId").orEmpty()
+                if (noteId.isBlank()) {
+                    androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
                 NoteDetailAiScreen(
                     noteId = noteId,
                     onNavigateBack = { navController.popBackStack() },
@@ -330,12 +375,16 @@ fun EduHubNavHost(
             composable(
                 route = Screen.QuizTaking.route,
                 arguments = listOf(
-                    navArgument("noteId") { type = NavType.StringType },
-                    navArgument("courseCode") { type = NavType.StringType }
+                    navArgument("noteId") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("courseCode") { type = NavType.StringType; defaultValue = "" }
                 )
             ) { backStackEntry ->
-                val noteId = backStackEntry.arguments?.getString("noteId") ?: ""
-                val courseCode = backStackEntry.arguments?.getString("courseCode") ?: ""
+                val noteId = backStackEntry.arguments?.getString("noteId").orEmpty()
+                val courseCode = backStackEntry.arguments?.getString("courseCode").orEmpty()
+                if (noteId.isBlank()) {
+                    androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
                 QuizTakingScreen(
                     noteId = noteId,
                     courseCode = courseCode,
@@ -346,17 +395,24 @@ fun EduHubNavHost(
             // Chat Room Screen
             composable(
                 route = Screen.ChatRoom.route,
-                arguments = listOf(navArgument("groupId") { type = NavType.StringType }),
+                arguments = listOf(navArgument("groupId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                }),
                 deepLinks = listOf(
                     androidx.navigation.navDeepLink { uriPattern = "eduhub://group/join/{groupId}" }
                 )
             ) { backStackEntry ->
-                val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
-                val group = StudyGroupRepository.getGroups().find { it.id == groupId }
+                val groupId = backStackEntry.arguments?.getString("groupId").orEmpty()
+                if (groupId.isBlank()) {
+                    androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
+                val group = runCatching { StudyGroupRepository.getGroups().find { it.id == groupId } }.getOrNull()
                 val groupName = group?.name ?: "Study Group"
                 androidx.compose.runtime.LaunchedEffect(groupId) {
                     if (group == null || !group.isJoined) {
-                        StudyGroupRepository.joinGroup(groupId)
+                        runCatching { StudyGroupRepository.joinGroup(groupId) }
                     }
                 }
                 ChatRoomScreen(
@@ -411,9 +467,16 @@ fun EduHubNavHost(
             // Group Info / Details Screen
             composable(
                 route = Screen.GroupInfo.route,
-                arguments = listOf(navArgument("groupId") { type = NavType.StringType })
+                arguments = listOf(navArgument("groupId") {
+                    type = NavType.StringType
+                    defaultValue = ""
+                })
             ) { backStackEntry ->
-                val groupId = backStackEntry.arguments?.getString("groupId") ?: ""
+                val groupId = backStackEntry.arguments?.getString("groupId").orEmpty()
+                if (groupId.isBlank()) {
+                    androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
+                    return@composable
+                }
                 com.example.eduhub20.ui.group.GroupInfoScreen(
                     groupId = groupId,
                     onNavigateBack = { navController.popBackStack() },

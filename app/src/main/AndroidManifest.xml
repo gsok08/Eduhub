@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".EduHubApp"
@@ -40,6 +43,20 @@
                     android:pathPrefix="/join" />
             </intent-filter>
         </activity>
+
+        <!-- Crash Recovery Activity - launched by the global uncaught exception handler -->
+        <activity
+            android:name=".CrashRecoveryActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Eduhub20"
+            android:excludeFromRecents="true" />
+
+        <!-- Background Group Message Notification Service -->
+        <service
+            android:name=".data.service.GroupNotificationService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 
 </manifest>

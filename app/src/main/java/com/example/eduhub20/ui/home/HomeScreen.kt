@@ -30,6 +30,7 @@ import com.example.eduhub20.data.repository.NoteQuizRepository
 import com.example.eduhub20.data.repository.PastYearRepository
 import com.example.eduhub20.data.service.NotificationService
 import com.example.eduhub20.data.service.NotificationSeverity
+import com.example.eduhub20.data.service.NotificationType
 import com.example.eduhub20.ui.components.NotificationDialog
 import com.example.eduhub20.ui.components.ScheduleItemType
 import com.example.eduhub20.ui.components.UniversalScheduleDialog
@@ -334,6 +335,151 @@ fun HomeScreen(
                     }
                 }
 
+                // ── Planner & Reminders Quick Section ────────────────────
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.DateRange,
+                                        contentDescription = null,
+                                        tint = EduHubPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Planner & Reminders",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                }
+
+                                if (activeNotifications.isNotEmpty()) {
+                                    Surface(
+                                        color = Color(0xFFDC2626).copy(alpha = 0.12f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.clickable { showNotificationDialog = true }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "${activeNotifications.size} alert${if (activeNotifications.size > 1) "s" else ""}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color(0xFFDC2626)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // If there is an urgent or upcoming alert, show preview card
+                            if (activeNotifications.isNotEmpty()) {
+                                val topNotif = activeNotifications.first()
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { showNotificationDialog = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = when (topNotif.type) {
+                                                NotificationType.EXAM_COUNTDOWN -> "🎯"
+                                                NotificationType.REMINDER -> "⏰"
+                                                NotificationType.TASK -> "📋"
+                                            },
+                                            fontSize = 18.sp
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                topNotif.title,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 13.sp,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                topNotif.timeRemainingText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = EduHubPrimary,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.ArrowForwardIos,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // 3 Quick Add Buttons: Exam, To-Do, Reminder
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        quickAddInitialType = ScheduleItemType.EXAM
+                                        showQuickAddDialog = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Text("🎯 + Exam", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        quickAddInitialType = ScheduleItemType.TASK
+                                        showQuickAddDialog = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Text("📋 + To-Do", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        quickAddInitialType = ScheduleItemType.REMINDER
+                                        showQuickAddDialog = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp)
+                                ) {
+                                    Text("⏰ + Reminder", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 // ── My Courses Header ──────────────────────────────────
                 item {
                     Row(
@@ -578,10 +724,6 @@ fun HomeScreen(
                 if (currentUser != null) {
                     EduHubLocalStorage.saveDismissedNotifications(currentUser.id, updated)
                 }
-            },
-            onOpenQuickAdd = {
-                quickAddInitialType = ScheduleItemType.EXAM
-                showQuickAddDialog = true
             }
         )
     }

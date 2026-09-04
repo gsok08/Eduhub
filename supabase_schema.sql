@@ -177,13 +177,54 @@ CREATE POLICY "Public Access to lecture-notes bucket" ON storage.objects FOR ALL
 DROP POLICY IF EXISTS "Public Access to avatars bucket" ON storage.objects;
 CREATE POLICY "Public Access to avatars bucket" ON storage.objects FOR ALL USING (bucket_id = 'avatars') WITH CHECK (bucket_id = 'avatars');
 
--- 10. Grant full API permissions to public schema tables
+-- 11. Exams Table (Per-account Exam Countdowns)
+CREATE TABLE IF NOT EXISTS public.exams (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    date BIGINT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.exams ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on exams" ON public.exams;
+CREATE POLICY "Public full access on exams" ON public.exams FOR ALL USING (true) WITH CHECK (true);
+
+-- 12. Tasks Table (Per-account To-Do List)
+CREATE TABLE IF NOT EXISTS public.tasks (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    date BIGINT NOT NULL,
+    is_completed BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on tasks" ON public.tasks;
+CREATE POLICY "Public full access on tasks" ON public.tasks FOR ALL USING (true) WITH CHECK (true);
+
+-- 13. Reminders Table (Per-account Time Reminders)
+CREATE TABLE IF NOT EXISTS public.reminders (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    date BIGINT NOT NULL,
+    time TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.reminders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public full access on reminders" ON public.reminders;
+CREATE POLICY "Public full access on reminders" ON public.reminders FOR ALL USING (true) WITH CHECK (true);
+
+-- 14. Grant full API permissions to public schema tables
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated, service_role;
 
--- 11. Enable Realtime Replication
+-- 15. Enable Realtime Replication
 ALTER PUBLICATION supabase_realtime ADD TABLE public.study_groups;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.group_members;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages;
@@ -191,6 +232,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.announcements;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.courses;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.lecture_notes;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.ai_generated_notes;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.exams;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.tasks;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.reminders;
 
--- 12. Force PostgREST schema cache to reload immediately
+-- 16. Force PostgREST schema cache to reload immediately
 NOTIFY pgrst, 'reload schema';

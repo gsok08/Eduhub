@@ -160,10 +160,10 @@ data class AiGeneratedNoteDto(
 
 @Serializable
 data class StudyGroupDto(
-    val id: String,
-    val name: String,
-    val host: String,
-    val details: String,
+    val id: String = "",
+    val name: String = "",
+    val host: String = "",
+    val details: String = "",
     @SerialName("current_members")
     val currentMembers: Int = 1,
 
@@ -173,16 +173,16 @@ data class StudyGroupDto(
     val category: String = "GROUP",
 
     @SerialName("host_user_id")
-    val hostUserId: String = "",
+    val hostUserId: String? = null,
 
     @SerialName("course_id")
-    val courseId: String = "",
+    val courseId: String? = null,
 
     @SerialName("course_code")
-    val courseCode: String = "",
+    val courseCode: String? = null,
 
     @SerialName("course_title")
-    val courseTitle: String = "",
+    val courseTitle: String? = null,
 
     val status: String = "INACTIVE"
 )
@@ -203,32 +203,32 @@ data class StudyRoomMember(
 
 @Serializable
 data class ChatMessageDto(
-    val id: String,
+    val id: String = "",
     @SerialName("group_id")
-    val groupId: String,
+    val groupId: String = "",
     @SerialName("sender_name")
-    val senderName: String,
+    val senderName: String = "",
     @SerialName("sender_role")
-    val senderRole: String,
-    val message: String,
-    val timestamp: String,
+    val senderRole: String = "",
+    val message: String = "",
+    val timestamp: String = "",
     @SerialName("is_from_me")
     val isFromMe: Boolean = false,
     @SerialName("sender_avatar_url")
     val senderAvatarUrl: String? = null,
     @SerialName("sender_id")
-    val senderId: String = ""
+    val senderId: String? = null
 )
 
 @Serializable
 data class GroupMemberDto(
-    val id: String,
+    val id: String = "",
     @SerialName("group_id")
-    val groupId: String,
+    val groupId: String = "",
     @SerialName("user_id")
-    val userId: String,
+    val userId: String = "",
     @SerialName("user_name")
-    val userName: String,
+    val userName: String = "Member",
     @SerialName("avatar_url")
     val avatarUrl: String? = null,
     val role: String = "MEMBER"
@@ -2325,21 +2325,6 @@ object StudyGroupRepository {
         )
 
         try {
-            val joinedIds = if (currentUser != null) {
-                SupabaseClientProvider.postgrest
-                    .from("study_group_members")
-                    .select {
-                        filter {
-                            eq("user_id", currentUser.id)
-                        }
-                    }
-                    .decodeList<StudyGroupMember>()
-                    .map { it.groupId }
-                    .toSet()
-            } else {
-                emptySet()
-            }
-
             val dtoList = SupabaseClientProvider.postgrest
                 .from("study_groups")
                 .select()
@@ -2360,7 +2345,7 @@ object StudyGroupRepository {
             val remoteMapped = dtoList.map { dto ->
                 val hostMember = allMembers.find { it.groupId == dto.id && it.role == "HOST" }
                 val resolvedHostUserId = when {
-                    dto.hostUserId.isNotBlank() -> dto.hostUserId
+                    !dto.hostUserId.isNullOrBlank() -> dto.hostUserId
                     hostMember != null -> hostMember.userId
                     else -> ""
                 }
@@ -2387,9 +2372,9 @@ object StudyGroupRepository {
                     } catch (_: Exception) {}
                 }
 
-                var resolvedCourseCode = dto.courseCode
-                var resolvedCourseTitle = dto.courseTitle
-                var resolvedCourseId = dto.courseId
+                var resolvedCourseCode = dto.courseCode ?: ""
+                var resolvedCourseTitle = dto.courseTitle ?: ""
+                var resolvedCourseId = dto.courseId ?: ""
                 var cleanDetails = dto.details
 
                 if (resolvedCourseCode.isBlank() && dto.details.contains("[Course:")) {
@@ -2545,16 +2530,22 @@ object StudyGroupRepository {
             courseTitle = courseTitle,
             status = "INACTIVE"
         )
-        try {
-            SupabaseClientProvider.postgrest
-                .from("study_group_members")
-                .insert(
-                    StudyGroupMember(
+        if (hostId.isNotBlank()) {
+            try {
+                SupabaseClientProvider.postgrest.from("group_members").upsert(
+                    GroupMemberDto(
+                        id = "${groupId}_${hostId}",
                         groupId = groupId,
-                        userId = hostId
+                        userId = hostId,
+                        userName = resolvedHost,
+                        avatarUrl = hostUser?.avatarUrl,
+                        role = "HOST"
                     )
                 )
-        } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e("EduHubSupabase", "Failed to insert host into group_members: ${e.message}")
+            }
+        }
 
         _groups.add(0, g)
         EduHubLocalStorage.saveGroups(_groups.toList())
@@ -2687,7 +2678,7 @@ object StudyGroupRepository {
             Log.d("EduHubSupabase", "Fetched ${dtoList.size} messages for group $groupId from Supabase")
 
             val remoteMapped = dtoList.map { dto ->
-                val isMe = (currentUser != null && dto.senderId.isNotBlank() && dto.senderId == currentUser.id) ||
+                val isMe = (currentUser != null && !dto.senderId.isNullOrBlank() && dto.senderId == currentUser.id) ||
                         (currentUser != null && dto.senderName.equals(currentUser.name, ignoreCase = true)) ||
                         dto.senderName.equals(currentUserName, ignoreCase = true)
                 ChatMessage(
@@ -2699,7 +2690,7 @@ object StudyGroupRepository {
                     timestamp = dto.timestamp,
                     isFromMe = isMe,
                     senderAvatarUrl = dto.senderAvatarUrl,
-                    senderId = dto.senderId
+                    senderId = dto.senderId ?: ""
                 )
             }
 
@@ -2939,9 +2930,75 @@ object StudyGroupRepository {
         Result.success(Unit)
     }
 
+    suspend fun disbandGroup(groupId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val currentUser = AuthRepository.currentUser.value ?: return@withContext Result.failure(Exception("Not signed in"))
+        Log.d("EduHubSupabase", "Disbanding group $groupId by user ${currentUser.id}")
+
+        // 1. Delete all members from group_members and study_group_members in Supabase
+        try {
+            SupabaseClientProvider.postgrest.from("group_members").delete {
+                filter { eq("group_id", groupId) }
+            }
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to delete group_members for group $groupId: ${e.message}")
+        }
+        try {
+            SupabaseClientProvider.postgrest.from("study_group_members").delete {
+                filter { eq("group_id", groupId) }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Delete all chat messages for this group in Supabase
+        try {
+            SupabaseClientProvider.postgrest.from("chat_messages").delete {
+                filter { eq("group_id", groupId) }
+            }
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to delete chat_messages for group $groupId: ${e.message}")
+        }
+
+        // 3. Delete group from study_groups table in Supabase
+        try {
+            SupabaseClientProvider.postgrest.from("study_groups").delete {
+                filter { eq("id", groupId) }
+            }
+        } catch (e: Exception) {
+            Log.e("EduHubSupabase", "Failed to delete study_group $groupId: ${e.message}")
+        }
+
+        // 4. Clean up local state
+        _groups.removeAll { it.id == groupId }
+        _joinedGroupIds.remove(groupId)
+        _messages.remove(groupId)
+        EduHubLocalStorage.saveGroups(_groups.toList())
+        EduHubLocalStorage.saveJoinedGroupIds(currentUser.id, _joinedGroupIds)
+        EduHubLocalStorage.saveChatMessages(groupId, emptyList())
+
+        Result.success(Unit)
+    }
+
+    suspend fun isHostOfGroup(groupId: String, userId: String): Boolean = withContext(Dispatchers.IO) {
+        val targetGroup = _groups.find { it.id == groupId }
+        if (targetGroup != null) {
+            if (targetGroup.hostUserId.isNotBlank() && targetGroup.hostUserId == userId) return@withContext true
+            val currentUserName = AuthRepository.currentUser.value?.name
+            if (currentUserName != null && targetGroup.host.equals(currentUserName, ignoreCase = true)) return@withContext true
+        }
+        try {
+            val members = fetchGroupMembers(groupId)
+            val me = members.find { it.userId == userId }
+            if (me != null && me.role.equals("HOST", ignoreCase = true)) return@withContext true
+        } catch (_: Exception) {}
+        return@withContext false
+    }
+
     suspend fun leaveGroup(groupId: String): Result<Unit> = withContext(Dispatchers.IO) {
         val currentUser = AuthRepository.currentUser.value ?: return@withContext Result.failure(Exception("Not signed in"))
-        kickMember(groupId, currentUser.id)
+        if (isHostOfGroup(groupId, currentUser.id)) {
+            disbandGroup(groupId)
+        } else {
+            kickMember(groupId, currentUser.id)
+        }
     }
 
     suspend fun joinGroupByCodeOrLink(rawInput: String): Result<StudyGroup> = withContext(Dispatchers.IO) {
@@ -2953,16 +3010,35 @@ object StudyGroupRepository {
         }
         if (cleanId.isBlank()) return@withContext Result.failure(Exception("Please enter a valid Group Code or Invitation Link."))
 
-        var group = _groups.find { it.id.equals(cleanId, ignoreCase = true) }
+        val shortClean = cleanId.removePrefix("EDU-").removePrefix("edu-").filter { it.isLetterOrDigit() }.uppercase()
+
+        // Helper to match a group by UUID, full short code, or short code tail
+        fun matchGroup(g: StudyGroup): Boolean {
+            if (g.id.equals(cleanId, ignoreCase = true)) return true
+            if (PomodoroRoomState.formatRoomCode(g.id).equals(cleanId, ignoreCase = true)) return true
+            if (shortClean.isNotBlank() && g.id.filter { it.isLetterOrDigit() }.takeLast(5).equals(shortClean, ignoreCase = true)) return true
+            return false
+        }
+
+        var group = _groups.find { matchGroup(it) }
+
+        if (group == null) {
+            // First fetch latest from Supabase so local list is populated
+            try {
+                fetchGroupsFromSupabase()
+            } catch (_: Exception) {}
+            group = _groups.find { matchGroup(it) }
+        }
+
         if (group == null) {
             try {
                 val dto = SupabaseClientProvider.postgrest.from("study_groups")
                     .select { filter { eq("id", cleanId) } }
                     .decodeSingleOrNull<StudyGroupDto>()
                 if (dto != null) {
-                    var resolvedCourseCode = dto.courseCode
-                    var resolvedCourseTitle = dto.courseTitle
-                    var resolvedCourseId = dto.courseId
+                    var resolvedCourseCode = dto.courseCode ?: ""
+                    var resolvedCourseTitle = dto.courseTitle ?: ""
+                    var resolvedCourseId = dto.courseId ?: ""
                     var cleanDetails = dto.details
 
                     if (resolvedCourseCode.isBlank() && dto.details.contains("[Course:")) {
@@ -2982,7 +3058,7 @@ object StudyGroupRepository {
                         currentMembers = dto.currentMembers,
                         maxMembers = dto.maxMembers,
                         category = dto.category,
-                        hostUserId = dto.hostUserId,
+                        hostUserId = dto.hostUserId ?: "",
                         courseId = resolvedCourseId,
                         courseCode = resolvedCourseCode,
                         courseTitle = resolvedCourseTitle,

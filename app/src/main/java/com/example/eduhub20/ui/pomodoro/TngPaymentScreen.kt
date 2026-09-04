@@ -89,7 +89,6 @@ fun TngPaymentScreen(
     val expectedAmount = "7.00"
 
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
-    var isTestingSample by remember { mutableStateOf(false) }
     var isVerifying by remember { mutableStateOf(false) }
     var verificationResult by remember { mutableStateOf<ReceiptData?>(null) }
     var isProUnlocked by remember {
@@ -101,7 +100,6 @@ fun TngPaymentScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             selectedImageUri = uri
-            isTestingSample = false
             verificationResult = null
             isVerifying = true
             scope.launch {
@@ -118,38 +116,6 @@ fun TngPaymentScreen(
                     isProUnlocked = true
                     Toast.makeText(context, "Payment Verified! EduHub Pro Unlocked 🎉", Toast.LENGTH_LONG).show()
                 }
-            }
-        }
-    }
-
-    fun testWithSampleReceipt() {
-        isVerifying = true
-        isTestingSample = true
-        selectedImageUri = null
-        verificationResult = null
-        scope.launch {
-            try {
-                val sampleBitmap = BitmapFactory.decodeResource(context.resources, R.drawable.sample_tng_receipt)
-                if (sampleBitmap != null) {
-                    val result = ReceiptVerificationService.verifyReceiptBitmap(
-                        bitmap = sampleBitmap,
-                        expectedReceiver = expectedReceiver,
-                        expectedAmount = expectedAmount
-                    )
-                    isVerifying = false
-                    verificationResult = result
-                    if (result.isValid && currentUser != null) {
-                        PomodoroRepository.setProUser(currentUser.id, true)
-                        isProUnlocked = true
-                        Toast.makeText(context, "Sample Verified! EduHub Pro Unlocked 🎉", Toast.LENGTH_LONG).show()
-                    }
-                } else {
-                    isVerifying = false
-                    Toast.makeText(context, "Could not load sample receipt.", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Exception) {
-                isVerifying = false
-                Toast.makeText(context, "Error: " + e.message, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -257,31 +223,17 @@ fun TngPaymentScreen(
             Text("Verify Proof of Payment", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Button(
-                    onClick = {
-                        photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary)
-                ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Upload Receipt", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                OutlinedButton(
-                    onClick = { testWithSampleReceipt() },
-                    modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Test Sample", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                }
+            Button(
+                onClick = {
+                    photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary)
+            ) {
+                Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Upload Receipt", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -307,8 +259,8 @@ fun TngPaymentScreen(
                 }
             }
 
-            // RECEIPT PREVIEW (Sample or Gallery)
-            if (isTestingSample || selectedImageUri != null) {
+            // RECEIPT PREVIEW (Uploaded from Gallery)
+            if (selectedImageUri != null) {
                 Spacer(modifier = Modifier.height(12.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -317,7 +269,7 @@ fun TngPaymentScreen(
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            if (isTestingSample) "Receipt Preview: Sample TNG Receipt" else "Receipt Preview: Uploaded from Gallery",
+                            "Receipt Preview: Uploaded from Gallery",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -331,21 +283,12 @@ fun TngPaymentScreen(
                                 .background(Color.Black.copy(alpha = 0.05f)),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (isTestingSample) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.sample_tng_receipt),
-                                    contentDescription = "Sample Receipt",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else if (selectedImageUri != null) {
-                                AsyncImage(
-                                    model = selectedImageUri,
-                                    contentDescription = "Uploaded Receipt",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
+                            AsyncImage(
+                                model = selectedImageUri,
+                                contentDescription = "Uploaded Receipt",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
                     }
                 }

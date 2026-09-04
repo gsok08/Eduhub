@@ -60,3 +60,22 @@ data class PomodoroTheme(
     val accentColorHex: Long,
     val isProOnly: Boolean = false
 )
+
+enum class ShopCategory(val title: String, val iconEmoji: String) {
+    THEMES("Themes", "🎨"),
+    SOUNDS("Sounds", "🎧"),
+    BADGES("Badges", "🏆"),
+    BOOSTERS("Boosters", "⚡")
+}
+
+data class ShopItem(
+    val id: String,
+    val title: String,
+    val category: ShopCategory,
+    val iconEmoji: String,
+    val description: String,
+    val priceCoins: Int,
+    val isProOnly: Boolean = false,
+    val themeData: PomodoroTheme? = null,
+    val badgeTitle: String? = null
+)

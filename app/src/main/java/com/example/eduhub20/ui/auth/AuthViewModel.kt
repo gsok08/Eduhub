@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.eduhub20.data.model.EduHubUser
 import com.example.eduhub20.data.model.UserRole
 import com.example.eduhub20.data.repository.AuthRepository
+import com.example.eduhub20.data.service.GroupNotificationService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +73,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
                 AuthRepository.restoreUser(restoredUser, savedSessionId)
                 _uiState.update { it.copy(currentUser = restoredUser, rememberMe = true) }
+                GroupNotificationService.start(application)
             }
         }
 
@@ -99,6 +101,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(rememberMe = remember) }
         if (!remember) {
             prefs.edit().clear().apply()
+            GroupNotificationService.stop(getApplication())
         }
     }
 
@@ -169,6 +172,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                 .putString("saved_user_avatar_url", user.avatarUrl)
                                 .putString("saved_user_campus", user.campus)
                                 .apply()
+                            GroupNotificationService.start(getApplication())
+                        } else {
+                            GroupNotificationService.stop(getApplication())
                         }
                         _uiState.update { it.copy(isLoading = false, currentUser = user) }
                     },
@@ -192,6 +198,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                     .putString("saved_user_avatar_url", user.avatarUrl)
                                     .putString("saved_user_campus", user.campus)
                                     .apply()
+                                GroupNotificationService.start(getApplication())
+                            } else {
+                                GroupNotificationService.stop(getApplication())
                             }
                             _uiState.update { it.copy(isLoading = false, currentUser = user) }
                         },
@@ -214,6 +223,9 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                                     .putString("saved_user_avatar_url", user.avatarUrl)
                                     .putString("saved_user_campus", user.campus)
                                     .apply()
+                                GroupNotificationService.start(getApplication())
+                            } else {
+                                GroupNotificationService.stop(getApplication())
                             }
                             _uiState.update { it.copy(isLoading = false, currentUser = user) }
                         },
@@ -311,15 +323,20 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
     fun verifySingleDeviceSession() {
         val user = _uiState.value.currentUser ?: return
         viewModelScope.launch {
-            val isValid = AuthRepository.checkSessionValid(user.id)
-            if (!isValid) {
-                signOut(forcedMessage = "⚠️ Your account was logged in on another device. You have been signed out.")
+            try {
+                val isValid = AuthRepository.checkSessionValid(user.id)
+                if (!isValid) {
+                    signOut(forcedMessage = "⚠️ Your account was logged in on another device. You have been signed out.")
+                }
+            } catch (_: Exception) {
+                // Network error or deleted row — silently allow session to continue
             }
         }
     }
 
     fun signOut(forcedMessage: String? = null) {
         prefs.edit().clear().apply()
+        GroupNotificationService.stop(getApplication())
         AuthRepository.signOut()
         _uiState.update {
             it.copy(

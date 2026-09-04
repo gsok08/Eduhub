@@ -1,9 +1,12 @@
 package com.example.eduhub20
 
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -26,13 +29,25 @@ class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        requestNotificationPermission()
 
-        com.example.eduhub20.data.local.EduHubLocalStorage.init(applicationContext)
-        com.example.eduhub20.data.ai.GeminiConfig.init(applicationContext)
-        com.example.eduhub20.ui.theme.ThemeState.init(applicationContext)
+        // NOTE: All .init() calls are now centralised in EduHubApp.onCreate()
+        // so they run before any Activity/Service/ViewModel is created.
 
         val networkObserver = NetworkConnectivityObserver(applicationContext)
 
@@ -41,13 +56,15 @@ class MainActivity : ComponentActivity() {
                 val uiState by authViewModel.uiState.collectAsState()
                 val isOnline by networkObserver.isOnline.collectAsState(initial = true)
 
-                // Single Device Login Enforcement: Check if session is still valid
+                // Single Device Login Enforcement: Check if session is still valid.
+                // Wrapped in runCatching so a deleted/missing Supabase profile row
+                // does not crash the periodic polling loop.
                 androidx.compose.runtime.LaunchedEffect(uiState.currentUser?.id) {
                     if (uiState.currentUser != null) {
-                        authViewModel.verifySingleDeviceSession()
+                        runCatching { authViewModel.verifySingleDeviceSession() }
                         while (true) {
                             kotlinx.coroutines.delay(3000L)
-                            authViewModel.verifySingleDeviceSession()
+                            runCatching { authViewModel.verifySingleDeviceSession() }
                         }
                     }
                 }

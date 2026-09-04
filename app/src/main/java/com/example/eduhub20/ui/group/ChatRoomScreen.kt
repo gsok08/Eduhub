@@ -74,6 +74,16 @@ fun ChatRoomScreen(
     val isAdmin = myMemberRole.equals("ADMIN", ignoreCase = true)
     val canManage = isHost || isAdmin
 
+    // Track active chat room to avoid duplicate status bar notifications while user is looking at this screen
+    DisposableEffect(groupId) {
+        com.example.eduhub20.data.service.GroupNotificationService.activeChatGroupId = groupId
+        onDispose {
+            if (com.example.eduhub20.data.service.GroupNotificationService.activeChatGroupId == groupId) {
+                com.example.eduhub20.data.service.GroupNotificationService.activeChatGroupId = null
+            }
+        }
+    }
+
     // Fetch members initially to get the accurate member count
     LaunchedEffect(groupId) {
         val list = StudyGroupRepository.fetchGroupMembers(groupId, groupHostName, hostUserId)
@@ -106,8 +116,9 @@ fun ChatRoomScreen(
     }
 
     fun shareInvitationLink() {
-        val inviteLink = "eduhub://group/join/$groupId"
-        val shareText = "📚 Join our study group \"$groupName\" on EduHub!\n\n👉 Click to join: $inviteLink\nOr enter Group ID: $groupId"
+        val shortCode = com.example.eduhub20.data.model.PomodoroRoomState.formatRoomCode(groupId)
+        val inviteLink = "eduhub://group/join/$shortCode"
+        val shareText = "📚 Join our study group \"$groupName\" on EduHub!\n\nGroup Code: $shortCode\n👉 Click to join: $inviteLink"
 
         val sendIntent = Intent().apply {
             action = Intent.ACTION_SEND

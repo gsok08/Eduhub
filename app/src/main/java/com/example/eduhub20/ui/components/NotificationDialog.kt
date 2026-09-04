@@ -38,8 +38,7 @@ fun NotificationDialog(
     onDismissRequest: () -> Unit,
     onNavigateToCalendar: () -> Unit,
     onDismissNotification: (String) -> Unit,
-    onClearAll: () -> Unit,
-    onOpenQuickAdd: () -> Unit
+    onClearAll: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     var selectedFilter by remember { mutableStateOf<NotificationType?>(null) }
@@ -102,21 +101,8 @@ fun NotificationDialog(
                         }
                     }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Quick Add Button
-                        FilledTonalIconButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onOpenQuickAdd()
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Item", tint = EduHubPrimary)
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        IconButton(onClick = onDismissRequest, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
-                        }
+                    IconButton(onClick = onDismissRequest, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
                     }
                 }
 
@@ -183,15 +169,6 @@ fun NotificationDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 16.dp)
                             )
-                            Spacer(modifier = Modifier.height(20.dp))
-                            Button(
-                                onClick = onOpenQuickAdd,
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Add Exam or Reminder")
-                            }
                         }
                     }
                 } else {

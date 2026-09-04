@@ -29,6 +29,10 @@ object PomodoroRepository {
     private const val KEY_STREAK_PREFIX = "streak_"
     private const val KEY_MINUTES_PREFIX = "focus_minutes_"
     private const val KEY_PRO_PREFIX = "is_pro_"
+    private const val KEY_PURCHASED_PREFIX = "purchased_"
+    private const val KEY_EQUIPPED_THEME_PREFIX = "equipped_theme_"
+    private const val KEY_EQUIPPED_BADGE_PREFIX = "equipped_badge_"
+    private const val KEY_ACTIVE_BOOSTERS_PREFIX = "active_boosters_"
 
     private var appContext: Context? = null
 
@@ -58,9 +62,87 @@ object PomodoroRepository {
         val ctx = appContext ?: return 120 + amount
         val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val current = prefs.getInt(KEY_COINS_PREFIX + userId, 120)
-        val updated = current + amount
+        val updated = (current + amount).coerceAtLeast(0)
         prefs.edit().putInt(KEY_COINS_PREFIX + userId, updated).apply()
         return updated
+    }
+
+    fun getPurchasedItemIds(userId: String): Set<String> {
+        val ctx = appContext ?: return setOf("theme_classic", "sound_none", "sound_rain", "sound_cafe")
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getStringSet(KEY_PURCHASED_PREFIX + userId, null)
+        val defaults = setOf("theme_classic", "sound_none", "sound_rain", "sound_cafe")
+        return if (saved == null) defaults else (saved + defaults)
+    }
+
+    fun isItemPurchased(userId: String, itemId: String): Boolean {
+        if (isProUser(userId)) return true
+        return getPurchasedItemIds(userId).contains(itemId)
+    }
+
+    fun purchaseItem(userId: String, itemId: String, priceCoins: Int): Boolean {
+        val ctx = appContext ?: return false
+        val currentCoins = getStudyCoins(userId)
+        if (currentCoins < priceCoins) return false
+
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val updatedCoins = currentCoins - priceCoins
+        val currentPurchased = getPurchasedItemIds(userId).toMutableSet()
+        currentPurchased.add(itemId)
+
+        prefs.edit()
+            .putInt(KEY_COINS_PREFIX + userId, updatedCoins)
+            .putStringSet(KEY_PURCHASED_PREFIX + userId, currentPurchased)
+            .apply()
+        return true
+    }
+
+    fun getEquippedThemeId(userId: String): String {
+        val ctx = appContext ?: return "theme_classic"
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_EQUIPPED_THEME_PREFIX + userId, "theme_classic") ?: "theme_classic"
+    }
+
+    fun setEquippedThemeId(userId: String, themeId: String) {
+        val ctx = appContext ?: return
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_EQUIPPED_THEME_PREFIX + userId, themeId).apply()
+    }
+
+    fun getEquippedTheme(userId: String): PomodoroTheme {
+        val themeId = getEquippedThemeId(userId)
+        return getThemes().find { it.id == themeId } ?: getThemes().first()
+    }
+
+    fun getEquippedBadge(userId: String): String? {
+        val ctx = appContext ?: return null
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_EQUIPPED_BADGE_PREFIX + userId, null)
+    }
+
+    fun setEquippedBadge(userId: String, badgeTitle: String?) {
+        val ctx = appContext ?: return
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (badgeTitle == null) {
+            prefs.edit().remove(KEY_EQUIPPED_BADGE_PREFIX + userId).apply()
+        } else {
+            prefs.edit().putString(KEY_EQUIPPED_BADGE_PREFIX + userId, badgeTitle).apply()
+        }
+    }
+
+    fun hasActiveBooster(userId: String, boosterId: String): Boolean {
+        val ctx = appContext ?: return false
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val boosters = prefs.getStringSet(KEY_ACTIVE_BOOSTERS_PREFIX + userId, emptySet()) ?: emptySet()
+        return boosters.contains(boosterId)
+    }
+
+    fun activateBooster(userId: String, boosterId: String) {
+        val ctx = appContext ?: return
+        val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val current = prefs.getStringSet(KEY_ACTIVE_BOOSTERS_PREFIX + userId, emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(boosterId)
+        prefs.edit().putStringSet(KEY_ACTIVE_BOOSTERS_PREFIX + userId, current).apply()
     }
 
     fun getDailyStreak(userId: String): Int {
@@ -80,6 +162,33 @@ object PomodoroRepository {
         val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val current = prefs.getInt(KEY_MINUTES_PREFIX + userId, 75)
         prefs.edit().putInt(KEY_MINUTES_PREFIX + userId, current + minutes).apply()
+    }
+
+    fun createNewFocusRoom(customName: String? = null, user: EduHubUser? = null): Pair<String, String> {
+        val randomTail = java.util.UUID.randomUUID().toString().filter { it.isLetterOrDigit() }.takeLast(5).uppercase()
+        val roomId = "focus-$randomTail"
+        val roomCode = PomodoroRoomState.formatRoomCode(roomId)
+        val resolvedName = if (!customName.isNullOrBlank()) customName.trim() else "Focus Room $roomCode"
+        getRoomState(roomId, resolvedName, user)
+        return Pair(roomId, roomCode)
+    }
+
+    fun resolveRoomIdByCode(input: String): String {
+        val clean = input.trim()
+        val shortClean = clean.removePrefix("EDU-").removePrefix("edu-").filter { it.isLetterOrDigit() }.uppercase()
+        val match = roomStates.keys.find { rId ->
+            rId.equals(clean, ignoreCase = true) ||
+            PomodoroRoomState.formatRoomCode(rId).equals(clean, ignoreCase = true) ||
+            (shortClean.isNotBlank() && rId.filter { it.isLetterOrDigit() }.takeLast(5).equals(shortClean, ignoreCase = true))
+        }
+        if (match != null) return match
+        if (shortClean.length == 5) {
+            return "focus-$shortClean"
+        }
+        if (clean.isNotBlank()) {
+            return clean
+        }
+        return "focus-${java.util.UUID.randomUUID().toString().filter { it.isLetterOrDigit() }.takeLast(5).uppercase()}"
     }
 
     fun getRoomState(roomId: String, roomName: String = "Focus Room", user: EduHubUser? = null): StateFlow<PomodoroRoomState> {
@@ -242,14 +351,16 @@ object PomodoroRepository {
 
                 // Award coins & log focus minutes for participants
                 for (p in current.participants) {
-                    addStudyCoins(p.userId, 25)
+                    val multiplier = if (hasActiveBooster(p.userId, "booster_2x")) 2 else 1
+                    addStudyCoins(p.userId, 25 * multiplier)
                     recordFocusMinutes(p.userId, 25)
                 }
 
                 nextPhase = if (newIntervalCount % 4 == 0) {
                     // Long break milestone! Bonus 50 coins
                     for (p in current.participants) {
-                        addStudyCoins(p.userId, 50)
+                        val multiplier = if (hasActiveBooster(p.userId, "booster_2x")) 2 else 1
+                        addStudyCoins(p.userId, 50 * multiplier)
                     }
                     PomodoroPhase.LONG_BREAK
                 } else {
@@ -295,17 +406,191 @@ object PomodoroRepository {
     }
 
     fun getAmbientSounds(): List<AmbientSound> = listOf(
-        AmbientSound("none", "Silence", "🔇", "Pure quiet concentration"),
-        AmbientSound("rain", "Tokyo Rain", "🌧️", "Gentle rain hitting classroom glass window"),
-        AmbientSound("cafe", "Lo-Fi Cafe", "☕", "Subtle coffee shop ambience with soft piano"),
-        AmbientSound("forest", "Forest Birdsong", "🌲", "Calm wind and chirping birds in nature", isProOnly = true),
-        AmbientSound("white_noise", "Deep White Noise", "📻", "Smooth static blocking out all room chatter", isProOnly = true)
+        AmbientSound("sound_none", "Silence", "🔇", "Pure quiet concentration"),
+        AmbientSound("sound_rain", "Tokyo Rain", "🌧️", "Gentle rain hitting classroom glass window"),
+        AmbientSound("sound_cafe", "Lo-Fi Cafe", "☕", "Subtle coffee shop ambience with soft piano"),
+        AmbientSound("sound_binaural", "Alpha Waves", "🧠", "14Hz deep memory frequency"),
+        AmbientSound("sound_forest", "Forest Birds", "🌲", "Calm wind and chirping birds"),
+        AmbientSound("sound_whitenoise", "White Noise", "📻", "Smooth static blocking room chatter"),
+        AmbientSound("sound_campfire", "Campfire", "🔥", "Warm crackling embers")
     )
 
     fun getThemes(): List<PomodoroTheme> = listOf(
-        PomodoroTheme("navy", "EduHub Classic", 0xFF1E3A8A, 0xFF3B82F6),
-        PomodoroTheme("forest", "Zen Forest", 0xFF064E3B, 0xFF10B981, isProOnly = true),
-        PomodoroTheme("sunset", "Sunset Crimson", 0xFF831843, 0xFFF43F5E, isProOnly = true),
-        PomodoroTheme("cyber", "Cyberpunk Neon", 0xFF18181B, 0xFFA855F7, isProOnly = true)
+        PomodoroTheme("theme_classic", "EduHub Classic", 0xFF2563EB, 0xFF60A5FA),
+        PomodoroTheme("theme_emerald", "Emerald Zen", 0xFF059669, 0xFF34D399),
+        PomodoroTheme("theme_sunset", "Sunset Crimson", 0xFFDC2626, 0xFFF87171),
+        PomodoroTheme("theme_cyber", "Cyber Neon", 0xFF7C3AED, 0xFFC084FC),
+        PomodoroTheme("theme_gold", "Golden Champion", 0xFFD97706, 0xFFFBBF24)
+    )
+
+    fun getShopCatalog(): List<com.example.eduhub20.data.model.ShopItem> = listOf(
+        // Themes
+        com.example.eduhub20.data.model.ShopItem(
+            id = "theme_classic",
+            title = "EduHub Classic",
+            category = com.example.eduhub20.data.model.ShopCategory.THEMES,
+            iconEmoji = "🔵",
+            description = "Default crisp blue EduHub focus palette",
+            priceCoins = 0,
+            themeData = PomodoroTheme("theme_classic", "EduHub Classic", 0xFF2563EB, 0xFF60A5FA)
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "theme_emerald",
+            title = "Emerald Zen",
+            category = com.example.eduhub20.data.model.ShopCategory.THEMES,
+            iconEmoji = "🌿",
+            description = "Calming botanical forest emerald theme",
+            priceCoins = 40,
+            themeData = PomodoroTheme("theme_emerald", "Emerald Zen", 0xFF059669, 0xFF34D399)
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "theme_sunset",
+            title = "Sunset Crimson",
+            category = com.example.eduhub20.data.model.ShopCategory.THEMES,
+            iconEmoji = "🌅",
+            description = "Warm aesthetic sunset dusk gradients",
+            priceCoins = 50,
+            themeData = PomodoroTheme("theme_sunset", "Sunset Crimson", 0xFFDC2626, 0xFFF87171)
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "theme_cyber",
+            title = "Cyber Neon",
+            category = com.example.eduhub20.data.model.ShopCategory.THEMES,
+            iconEmoji = "⚡",
+            description = "Futuristic cyberpunk neon purple glow",
+            priceCoins = 60,
+            themeData = PomodoroTheme("theme_cyber", "Cyber Neon", 0xFF7C3AED, 0xFFC084FC)
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "theme_gold",
+            title = "Golden Champion",
+            category = com.example.eduhub20.data.model.ShopCategory.THEMES,
+            iconEmoji = "🏆",
+            description = "Prestige metallic amber & gold aura",
+            priceCoins = 80,
+            themeData = PomodoroTheme("theme_gold", "Golden Champion", 0xFFD97706, 0xFFFBBF24)
+        ),
+
+        // Sounds
+        com.example.eduhub20.data.model.ShopItem(
+            id = "sound_none",
+            title = "Pure Silence",
+            category = com.example.eduhub20.data.model.ShopCategory.SOUNDS,
+            iconEmoji = "🔇",
+            description = "Zero noise uninterrupted study flow",
+            priceCoins = 0
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "sound_rain",
+            title = "Tokyo Rain",
+            category = com.example.eduhub20.data.model.ShopCategory.SOUNDS,
+            iconEmoji = "🌧️",
+            description = "Gentle droplets on classroom windows",
+            priceCoins = 0
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "sound_cafe",
+            title = "Lo-Fi Cafe",
+            category = com.example.eduhub20.data.model.ShopCategory.SOUNDS,
+            iconEmoji = "☕",
+            description = "Warm acoustic study lounge coffee vibes",
+            priceCoins = 0
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "sound_binaural",
+            title = "Binaural Alpha Waves",
+            category = com.example.eduhub20.data.model.ShopCategory.SOUNDS,
+            iconEmoji = "🧠",
+            description = "14Hz frequency tuned for deep memory retention",
+            priceCoins = 35
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "sound_forest",
+            title = "Forest Birdsong",
+            category = com.example.eduhub20.data.model.ShopCategory.SOUNDS,
+            iconEmoji = "🌲",
+            description = "Peaceful nature breeze and soft chirping",
+            priceCoins = 35
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "sound_whitenoise",
+            title = "Deep White Noise",
+            category = com.example.eduhub20.data.model.ShopCategory.SOUNDS,
+            iconEmoji = "📻",
+            description = "Blocks background dorm and campus noise",
+            priceCoins = 30
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "sound_campfire",
+            title = "Campfire Crackle",
+            category = com.example.eduhub20.data.model.ShopCategory.SOUNDS,
+            iconEmoji = "🔥",
+            description = "Cozy fireside embers for evening sessions",
+            priceCoins = 30
+        ),
+
+        // Badges / Titles
+        com.example.eduhub20.data.model.ShopItem(
+            id = "badge_scholar",
+            title = "Focus Scholar",
+            category = com.example.eduhub20.data.model.ShopCategory.BADGES,
+            iconEmoji = "🎓",
+            description = "Displays on your Profile & Squad roster",
+            priceCoins = 45,
+            badgeTitle = "🎓 Focus Scholar"
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "badge_speed",
+            title = "Speed Learner",
+            category = com.example.eduhub20.data.model.ShopCategory.BADGES,
+            iconEmoji = "⚡",
+            description = "Proves your rapid problem-solving drive",
+            priceCoins = 50,
+            badgeTitle = "⚡ Speed Learner"
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "badge_owl",
+            title = "Night Owl",
+            category = com.example.eduhub20.data.model.ShopCategory.BADGES,
+            iconEmoji = "🦉",
+            description = "Dedicated badge for late-night study masters",
+            priceCoins = 60,
+            badgeTitle = "🦉 Night Owl"
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "badge_legend",
+            title = "Focus Legend",
+            category = com.example.eduhub20.data.model.ShopCategory.BADGES,
+            iconEmoji = "🔥",
+            description = "Ultimate gold prestige title badge",
+            priceCoins = 80,
+            badgeTitle = "🔥 Focus Legend"
+        ),
+
+        // Boosters
+        com.example.eduhub20.data.model.ShopItem(
+            id = "booster_streak",
+            title = "Streak Saver Shield",
+            category = com.example.eduhub20.data.model.ShopCategory.BOOSTERS,
+            iconEmoji = "🛡️",
+            description = "Safeguards your study streak if you miss a day",
+            priceCoins = 40
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "booster_2x",
+            title = "2x Coin Multiplier",
+            category = com.example.eduhub20.data.model.ShopCategory.BOOSTERS,
+            iconEmoji = "☕",
+            description = "Doubles all StudyCoin rewards on completed cycles",
+            priceCoins = 50
+        ),
+        com.example.eduhub20.data.model.ShopItem(
+            id = "booster_ai",
+            title = "AI Exam Hint Pass",
+            category = com.example.eduhub20.data.model.ShopCategory.BOOSTERS,
+            iconEmoji = "💡",
+            description = "Grants 5 bonus smart AI exam hints in flashcards",
+            priceCoins = 30
+        )
     )
 }

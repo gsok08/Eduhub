@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.eduhub20.data.model.GroupMember
+import com.example.eduhub20.data.model.PomodoroRoomState
 import com.example.eduhub20.data.repository.AuthRepository
 import com.example.eduhub20.data.repository.StudyGroupRepository
 import com.example.eduhub20.ui.common.UserAvatar
@@ -59,6 +60,7 @@ fun GroupInfoScreen(
 
     var showClearChatDialog by remember { mutableStateOf(false) }
     var showLeaveGroupDialog by remember { mutableStateOf(false) }
+    var showDisbandGroupDialog by remember { mutableStateOf(false) }
     var memberToKick by remember { mutableStateOf<GroupMember?>(null) }
 
     fun refreshMembers() {
@@ -88,8 +90,9 @@ fun GroupInfoScreen(
     val canManage = isHost || isAdmin
 
     fun shareInvitationLink() {
-        val inviteLink = "eduhub://group/join/$groupId"
-        val shareText = "📚 Join our study group \"$groupName\" on EduHub!\n\n👉 Click to join: $inviteLink\nOr enter Group ID: $groupId"
+        val shortCode = PomodoroRoomState.formatRoomCode(groupId)
+        val inviteLink = "eduhub://group/join/$shortCode"
+        val shareText = "📚 Join our study group \"$groupName\" on EduHub!\n\nGroup Code: $shortCode\n👉 Click to join: $inviteLink"
 
         val sendIntent = Intent().apply {
             action = Intent.ACTION_SEND
@@ -179,6 +182,7 @@ fun GroupInfoScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // Group Code Row
+                        val shortGroupCode = PomodoroRoomState.formatRoomCode(groupId)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -190,18 +194,18 @@ fun GroupInfoScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Group Code", style = MaterialTheme.typography.labelSmall, color = EduHubPrimary)
-                                Text(groupId, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                Text(shortGroupCode, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EduHubPrimary)
                             }
                             IconButton(
                                 onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Group Invite Link", "eduhub://group/join/$groupId")
+                                    val clip = ClipData.newPlainText("Group Code", shortGroupCode)
                                     clipboard.setPrimaryClip(clip)
-                                    Toast.makeText(context, "Invite link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Group Code $shortGroupCode copied to clipboard!", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy Link", tint = EduHubPrimary, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy Code", tint = EduHubPrimary, modifier = Modifier.size(20.dp))
                             }
                         }
 
@@ -362,8 +366,22 @@ fun GroupInfoScreen(
                         }
                     }
 
-                    // Leave Group button for non-hosts
-                    if (!isHost) {
+                    // Disband Group button for host, Leave Group button for non-hosts
+                    if (isHost) {
+                        Button(
+                            onClick = { showDisbandGroupDialog = true },
+                            modifier = Modifier.fillMaxWidth().height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Disband Study Group (Host)", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
                         OutlinedButton(
                             onClick = { showLeaveGroupDialog = true },
                             modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -432,6 +450,40 @@ fun GroupInfoScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showLeaveGroupDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // ── Disband Group Confirmation Dialog (Host) ───────────────────────────
+    if (showDisbandGroupDialog) {
+        AlertDialog(
+            onDismissRequest = { showDisbandGroupDialog = false },
+            title = { Text("Disband Study Group", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "You are the host of \"$groupName\". Quitting will permanently delete this group and remove all members.\n\nAre you sure you want to disband this study group?",
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDisbandGroupDialog = false
+                        scope.launch {
+                            StudyGroupRepository.disbandGroup(groupId)
+                            Toast.makeText(context, "Study group disbanded", Toast.LENGTH_SHORT).show()
+                            onGroupLeftOrKicked()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Disband Group")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDisbandGroupDialog = false }) {
                     Text("Cancel")
                 }
             }

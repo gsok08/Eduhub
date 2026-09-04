@@ -10,6 +10,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,9 +26,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.eduhub20.data.model.Course
 import com.example.eduhub20.data.model.GroupMember
+import com.example.eduhub20.data.model.PomodoroRoomState
 import com.example.eduhub20.data.model.StudyGroup
 import com.example.eduhub20.data.repository.AuthRepository
 import com.example.eduhub20.data.repository.CourseRepository
+import com.example.eduhub20.data.repository.PomodoroRepository
 import com.example.eduhub20.data.repository.StudyGroupRepository
 import com.example.eduhub20.data.repository.StudyRoomMember
 import com.example.eduhub20.ui.theme.CardBlue
@@ -82,20 +87,28 @@ fun StudyGroupScreen(
     var joinError by remember { mutableStateOf<String?>(null) }
     var isJoiningByCode by remember { mutableStateOf(false) }
 
+    // Focus Room Dialog State (Top-Right Launcher)
+    var showFocusRoomDialog by remember { mutableStateOf(false) }
+    var focusRoomCodeInput by remember { mutableStateOf("") }
+    var focusRoomError by remember { mutableStateOf<String?>(null) }
+
+    // Leave or Disband Dialog State
+    var groupToLeaveOrDisband by remember { mutableStateOf<StudyGroup?>(null) }
+    var isLeavingOrDisbanding by remember { mutableStateOf(false) }
+
     // Selected course for new group
     var selectedCourse by remember { mutableStateOf<Course?>(null) }
 
-    // Courses loaded from Supabase
+    // Courses loaded from Supabase: strictly enrolled courses only!
     var courses by remember { mutableStateOf<List<Course>>(emptyList()) }
 
     // Dropdown state
     var courseMenuExpanded by remember { mutableStateOf(false) }
 
-    // Fetch courses
+    // Fetch enrolled courses for current user
     LaunchedEffect(currentUser?.id) {
         CourseRepository.fetchCoursesFromSupabase()
-        val userCourses = CourseRepository.getCoursesForUser(currentUser)
-        courses = if (userCourses.isNotEmpty()) userCourses else CourseRepository.getCourses()
+        courses = CourseRepository.getCoursesForUser(currentUser)
     }
 
     // Recommended groups: ONLY recommend and allow search for groups corresponding
@@ -106,7 +119,11 @@ fun StudyGroupScreen(
         courses.toList(),
         currentUser?.id
     ) {
-        val enrolledKeys = CourseRepository.getEnrolledCourseKeys(currentUser)
+        val enrolledKeys = CourseRepository.getEnrolledCourseKeys(currentUser).toMutableSet()
+        courses.forEach {
+            enrolledKeys.add(it.id.trim())
+            enrolledKeys.add(it.code.trim().uppercase())
+        }
 
         groups.filter { group ->
             // Already joined groups belong to "My Groups", not Recommended
@@ -165,6 +182,24 @@ fun StudyGroupScreen(
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold
                 )
+
+                // Top Right Pomodoro Focus Room launcher
+                Button(
+                    onClick = {
+                        focusRoomCodeInput = ""
+                        focusRoomError = null
+                        showFocusRoomDialog = true
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF059669),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(38.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                ) {
+                    Text("⏱️ Focus Room", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
             }
 
             Spacer(
@@ -337,10 +372,10 @@ fun StudyGroupScreen(
 
                                     Text(
                                         text =
-                                            if (
-                                                searchGroupQuery.isBlank()
-                                            ) {
-                                                "No recommended groups for your enrolled courses yet. Join more courses, or join directly with a group invite code/link!"
+                                            if (courses.isEmpty()) {
+                                                "You have not joined any courses yet. Enroll in courses to see recommended study groups, or join any group directly with an invite code or link above!"
+                                            } else if (searchGroupQuery.isBlank()) {
+                                                "No recommended groups for your enrolled courses yet. Create one in the Create tab, or join directly with a group invite code or link!"
                                             } else {
                                                 "No study groups found matching \"$searchGroupQuery\" among your enrolled courses."
                                             },
@@ -361,6 +396,8 @@ fun StudyGroupScreen(
 
                                 GroupCardItem(
                                     group = grp,
+                                    currentUserId = currentUser?.id ?: "",
+                                    currentUserName = currentUser?.name ?: "",
                                     onJoinClick = {
                                         scope.launch {
                                             StudyGroupRepository.joinGroup(grp.id)
@@ -373,18 +410,8 @@ fun StudyGroupScreen(
                                     onChatClick = {
                                         onNavigateToChat(grp.id)
                                     },
-                                    onPomodoroClick = {
-                                        onNavigateToPomodoro(grp.id, grp.name)
-                                    },
                                     onLeaveClick = {
-                                        scope.launch {
-                                            val result = StudyGroupRepository.leaveGroup(grp.id)
-                                            if (result.isSuccess) {
-                                                val updatedGroups = StudyGroupRepository.fetchGroupsFromSupabase()
-                                                groups.clear()
-                                                groups.addAll(updatedGroups)
-                                            }
-                                        }
+                                        groupToLeaveOrDisband = grp
                                     }
                                 )
 
@@ -433,6 +460,36 @@ fun StudyGroupScreen(
                                     modifier = Modifier.height(14.dp)
                                 )
 
+                                if (courses.isEmpty()) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(14.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Info,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Text(
+                                                "You can only create study groups for courses you have enrolled in. Please enroll in a course first from the Course screen.",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                }
+
                                 // GROUP NAME
                                 OutlinedTextField(
                                     value = newGroupName,
@@ -469,16 +526,19 @@ fun StudyGroupScreen(
                                     modifier = Modifier.height(12.dp)
                                 )
 
-                                // COURSE SELECTION
+                                // COURSE SELECTION (Enrolled Courses Only)
                                 Box(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
 
                                     OutlinedButton(
                                         onClick = {
-                                            courseMenuExpanded = true
+                                            if (courses.isNotEmpty()) {
+                                                courseMenuExpanded = true
+                                            }
                                         },
-                                        modifier = Modifier.fillMaxWidth(),
+                                        enabled = courses.isNotEmpty(),
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
 
@@ -487,7 +547,8 @@ fun StudyGroupScreen(
                                                 selectedCourse?.let {
                                                     "${it.code} - ${it.title}"
                                                 }
-                                                    ?: "Select Course"
+                                                    ?: if (courses.isEmpty()) "No enrolled courses (Join a course first)" else "Select Enrolled Course",
+                                            fontWeight = FontWeight.SemiBold
                                         )
                                     }
 
@@ -505,7 +566,7 @@ fun StudyGroupScreen(
                                             DropdownMenuItem(
                                                 text = {
                                                     Text(
-                                                        "No courses available"
+                                                        "No enrolled courses available"
                                                     )
                                                 },
                                                 onClick = {
@@ -548,6 +609,7 @@ fun StudyGroupScreen(
                                     onClick = {
 
                                         if (
+                                            courses.isNotEmpty() &&
                                             newGroupName.isNotBlank() &&
                                             selectedCourse != null
                                         ) {
@@ -587,7 +649,8 @@ fun StudyGroupScreen(
                                     },
 
                                     enabled =
-                                        newGroupName.isNotBlank() &&
+                                        courses.isNotEmpty() &&
+                                                newGroupName.isNotBlank() &&
                                                 selectedCourse != null,
 
                                     shape = RoundedCornerShape(12.dp),
@@ -671,22 +734,14 @@ fun StudyGroupScreen(
 
                                 GroupCardItem(
                                     group = grp,
+                                    currentUserId = currentUser?.id ?: "",
+                                    currentUserName = currentUser?.name ?: "",
                                     onJoinClick = {},
                                     onChatClick = {
                                         onNavigateToChat(grp.id)
                                     },
-                                    onPomodoroClick = {
-                                        onNavigateToPomodoro(grp.id, grp.name)
-                                    },
                                     onLeaveClick = {
-                                        scope.launch {
-                                            val result = StudyGroupRepository.leaveGroup(grp.id)
-                                            if (result.isSuccess) {
-                                                val updatedGroups = StudyGroupRepository.fetchGroupsFromSupabase()
-                                                groups.clear()
-                                                groups.addAll(updatedGroups)
-                                            }
-                                        }
+                                        groupToLeaveOrDisband = grp
                                     }
                                 )
 
@@ -770,6 +825,169 @@ fun StudyGroupScreen(
                 }
             )
         }
+
+        if (showFocusRoomDialog) {
+            AlertDialog(
+                onDismissRequest = { showFocusRoomDialog = false },
+                title = {
+                    Text("⏱️ Focus / Pomodoro Room", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "Study together with synchronized Pomodoro timers. Start your own focus room and share the code, or enter an existing code to join!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Create New Focus Room
+                        Button(
+                            onClick = {
+                                val (newRoomId, newRoomCode) = PomodoroRepository.createNewFocusRoom(user = currentUser)
+                                showFocusRoomDialog = false
+                                onNavigateToPomodoro(newRoomId, "Focus Room $newRoomCode")
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF059669),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().height(46.dp)
+                        ) {
+                            Icon(Icons.Default.AddCircleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Create New Focus Room", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HorizontalDivider(modifier = Modifier.weight(1f))
+                            Text("  OR JOIN WITH CODE  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            HorizontalDivider(modifier = Modifier.weight(1f))
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Join by Room Code
+                        OutlinedTextField(
+                            value = focusRoomCodeInput,
+                            onValueChange = {
+                                focusRoomCodeInput = it
+                                focusRoomError = null
+                            },
+                            placeholder = { Text("e.g. EDU-5F554 or 5F554") },
+                            label = { Text("Focus Room Code") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        if (focusRoomError != null) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = focusRoomError!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = {
+                                val code = focusRoomCodeInput.trim()
+                                if (code.isBlank()) {
+                                    focusRoomError = "Please enter a room code"
+                                    return@Button
+                                }
+                                val resolvedRoomId = PomodoroRepository.resolveRoomIdByCode(code)
+                                val displayCode = PomodoroRoomState.formatRoomCode(resolvedRoomId)
+                                showFocusRoomDialog = false
+                                onNavigateToPomodoro(resolvedRoomId, "Focus Room $displayCode")
+                            },
+                            enabled = focusRoomCodeInput.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = EduHubPrimary),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().height(46.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Join Focus Room", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showFocusRoomDialog = false }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+
+        // Leave or Disband Confirmation Dialog
+        groupToLeaveOrDisband?.let { targetGroup ->
+            val isHost = (currentUser != null && targetGroup.hostUserId.isNotBlank() && targetGroup.hostUserId == currentUser.id) ||
+                    (currentUser != null && targetGroup.host.equals(currentUser.name, true))
+
+            AlertDialog(
+                onDismissRequest = {
+                    if (!isLeavingOrDisbanding) groupToLeaveOrDisband = null
+                },
+                title = {
+                    Text(
+                        if (isHost) "Disband Study Group" else "Leave Study Group",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        if (isHost) {
+                            "You are the host of \"${targetGroup.name}\". Quitting will permanently disband the group and remove all members.\n\nAre you sure you want to disband this study group?"
+                        } else {
+                            "Are you sure you want to leave \"${targetGroup.name}\"?"
+                        }
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            isLeavingOrDisbanding = true
+                            scope.launch {
+                                StudyGroupRepository.leaveGroup(targetGroup.id)
+                                val updated = StudyGroupRepository.fetchGroupsFromSupabase()
+                                groups.clear()
+                                groups.addAll(updated)
+                                isLeavingOrDisbanding = false
+                                groupToLeaveOrDisband = null
+                            }
+                        },
+                        enabled = !isLeavingOrDisbanding,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        if (isLeavingOrDisbanding) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text(if (isHost) "Disband Group" else "Leave Group")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { groupToLeaveOrDisband = null },
+                        enabled = !isLeavingOrDisbanding
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -781,11 +999,14 @@ fun StudyGroupScreen(
 @Composable
 fun GroupCardItem(
     group: StudyGroup,
+    currentUserId: String = "",
+    currentUserName: String = "",
     onJoinClick: () -> Unit,
     onChatClick: () -> Unit,
-    onPomodoroClick: () -> Unit = {},
     onLeaveClick: () -> Unit = {}
 ) {
+    val isHost = (currentUserId.isNotBlank() && group.hostUserId == currentUserId) ||
+            (currentUserName.isNotBlank() && group.host.equals(currentUserName, true))
 
     val cardColor =
         if (group.id.hashCode() % 2 == 0)
@@ -910,110 +1131,92 @@ fun GroupCardItem(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement =
-                    Arrangement.SpaceBetween,
-                verticalAlignment =
-                    Alignment.CenterVertically
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-
                 Text(
-                    "${group.currentMembers}/${group.maxMembers} Members",
+                    "👥 ${group.currentMembers}/${group.maxMembers} Members",
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     color = Color(0xFF334155)
                 )
+            }
 
-                if (group.isJoined) {
+            Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-
-                        Button(
-                            onClick = onChatClick,
-                            colors =
-                                ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF1E293B),
-                                    contentColor = Color.White
-                                ),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text(
-                                "Open Chat",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-
-                        Button(
-                            onClick = onPomodoroClick,
-                            colors =
-                                ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF059669),
-                                    contentColor = Color.White
-                                ),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text(
-                                "⏱️ Focus",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-
-                        Button(
-                            onClick = onLeaveClick,
-                            colors =
-                                ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFDC2626),
-                                    contentColor = Color.White
-                                ),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text(
-                                "Leave",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
-
-                } else {
-
-                    val isFull = group.currentMembers >= group.maxMembers
+            if (group.isJoined) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Button(
-                        onClick = onJoinClick,
-                        enabled = !isFull,
-                        colors =
-                            ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF1E293B),
-                                contentColor = Color.White,
-                                disabledContainerColor = Color(0xFF94A3B8),
-                                disabledContentColor = Color.White
-                            ),
-                        shape =
-                            RoundedCornerShape(8.dp),
-                        modifier =
-                            Modifier.height(34.dp)
+                        onClick = onChatClick,
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1E293B),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                     ) {
-
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            if (isFull) "Full" else "Join",
-                            fontSize = 12.sp,
+                            "Chat",
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
                     }
+
+                    Button(
+                        onClick = onLeaveClick,
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFDC2626),
+                            contentColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Icon(
+                            if (isHost) Icons.Default.DeleteForever else Icons.AutoMirrored.Filled.ExitToApp,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            if (isHost) "Disband" else "Leave",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            } else {
+                val isFull = group.currentMembers >= group.maxMembers
+                Button(
+                    onClick = onJoinClick,
+                    enabled = !isFull,
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EduHubPrimary,
+                        contentColor = Color.White,
+                        disabledContainerColor = Color(0xFF94A3B8),
+                        disabledContentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        if (isFull) "Group Full" else "Join Group",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 }
             }
         }

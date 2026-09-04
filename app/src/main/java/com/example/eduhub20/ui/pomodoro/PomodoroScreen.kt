@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -57,7 +58,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -81,12 +84,14 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.eduhub20.R
 import com.example.eduhub20.data.model.PomodoroPhase
+import com.example.eduhub20.data.model.ShopCategory
 import com.example.eduhub20.data.repository.AuthRepository
 import com.example.eduhub20.data.repository.PomodoroRepository
 import com.example.eduhub20.ui.theme.EduHubPrimary
@@ -117,9 +122,18 @@ fun PomodoroScreen(
     var showStatusDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameInputText by remember { mutableStateOf("") }
-    var selectedSoundId by remember { mutableStateOf("none") }
+    var selectedSoundId by remember { mutableStateOf("sound_none") }
     var coinsBalance by remember {
         mutableStateOf(if (currentUser != null) PomodoroRepository.getStudyCoins(currentUser.id) else 120)
+    }
+    var equippedThemeId by remember {
+        mutableStateOf(if (currentUser != null) PomodoroRepository.getEquippedThemeId(currentUser.id) else "theme_classic")
+    }
+    var equippedBadge by remember {
+        mutableStateOf(if (currentUser != null) PomodoroRepository.getEquippedBadge(currentUser.id) else null)
+    }
+    var purchasedItemIds by remember {
+        mutableStateOf(if (currentUser != null) PomodoroRepository.getPurchasedItemIds(currentUser.id) else emptySet())
     }
 
     DisposableEffect(roomId, currentUser?.id) {
@@ -137,9 +151,16 @@ fun PomodoroScreen(
         }
     }
 
+    val equippedTheme = remember(equippedThemeId) {
+        PomodoroRepository.getThemes().find { it.id == equippedThemeId } ?: PomodoroRepository.getThemes().first()
+    }
+
+    val themePrimary = Color(equippedTheme.primaryColorHex)
+    val themeAccent = Color(equippedTheme.accentColorHex)
+
     val phaseColor by animateColorAsState(
         targetValue = when (roomState.phase) {
-            PomodoroPhase.FOCUS -> Color(0xFF2563EB)
+            PomodoroPhase.FOCUS -> themePrimary
             PomodoroPhase.SHORT_BREAK -> Color(0xFF059669)
             PomodoroPhase.LONG_BREAK -> Color(0xFFD97706)
         },
@@ -158,7 +179,7 @@ fun PomodoroScreen(
     val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (roomState.isRunning) 1.03f else 1f,
+        targetValue = if (roomState.isRunning) 1.02f else 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(1000),
             repeatMode = RepeatMode.Reverse
@@ -172,7 +193,7 @@ fun PomodoroScreen(
 
     Surface(
         modifier = modifier.fillMaxSize(),
-        color = Color(0xFF0B1329)
+        color = MaterialTheme.colorScheme.background
     ) {
         Column(
             modifier = Modifier
@@ -181,17 +202,20 @@ fun PomodoroScreen(
                 .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // TOP BAR
+            // ── TOP BAR ──────────────────────────────────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                IconButton(onClick = onNavigateBack) {
+                IconButton(
+                    onClick = onNavigateBack,
+                    modifier = Modifier.size(36.dp)
+                ) {
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color.White
+                        tint = MaterialTheme.colorScheme.onBackground
                     )
                 }
 
@@ -204,7 +228,7 @@ fun PomodoroScreen(
                             text = roomState.roomName,
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onBackground
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         IconButton(
@@ -212,13 +236,13 @@ fun PomodoroScreen(
                                 renameInputText = roomState.roomName
                                 showRenameDialog = true
                             },
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
                                 contentDescription = "Rename Room",
-                                tint = Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(15.dp)
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
@@ -229,7 +253,7 @@ fun PomodoroScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color.White.copy(alpha = 0.12f))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
                             .clickable {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("Pomodoro Room Code", roomState.roomCode))
@@ -242,24 +266,25 @@ fun PomodoroScreen(
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF93C5FD)
+                            color = phaseColor
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = "Copy Room Code",
-                            tint = Color(0xFF93C5FD),
-                            modifier = Modifier.size(12.dp)
+                            tint = phaseColor,
+                            modifier = Modifier.size(11.dp)
                         )
                     }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // StudyCoins Shop Badge Button
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFFF59E0B).copy(alpha = 0.2f))
-                            .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f), RoundedCornerShape(20.dp))
+                            .background(Color(0xFFF59E0B).copy(alpha = 0.12f))
+                            .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.35f), RoundedCornerShape(20.dp))
                             .clickable { showStoreDialog = true }
                             .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
@@ -267,87 +292,92 @@ fun PomodoroScreen(
                             Icon(
                                 imageVector = Icons.Default.MonetizationOn,
                                 contentDescription = "Coins",
-                                tint = Color(0xFFF59E0B),
-                                modifier = Modifier.size(16.dp)
+                                tint = Color(0xFFD97706),
+                                modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "$coinsBalance",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
-                                color = Color(0xFFFDE68A)
+                                color = Color(0xFFB45309)
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    IconButton(onClick = { showShareDialog = true }) {
+                    IconButton(
+                        onClick = { showShareDialog = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "Share",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // PHASE SELECTOR CHIPS
+            // ── PHASE SELECTOR CHIPS ─────────────────────────────────────────
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
-                    .padding(4.dp),
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                    .padding(3.dp),
                 horizontalArrangement = Arrangement.Center
             ) {
                 PomodoroPhase.values().forEach { phase ->
                     val isSelected = roomState.phase == phase
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(16.dp))
                             .background(if (isSelected) phaseColor else Color.Transparent)
                             .clickable { PomodoroRepository.switchPhase(roomId, phase) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
                             text = phase.badgeLabel,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             fontSize = 12.sp,
-                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.6f)
+                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
-            // CIRCULAR ANIMATED COUNTDOWN TIMER
+            // ── CIRCULAR ANIMATED COUNTDOWN TIMER ────────────────────────────
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(260.dp)
+                    .size(240.dp)
                     .scale(pulseScale)
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Background track
                     drawCircle(
-                        color = Color.White.copy(alpha = 0.08f),
+                        color = Color(0xFFE2E8F0),
                         radius = size.minDimension / 2 - 12.dp.toPx(),
-                        style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
                     )
+                    // Progress arc with theme gradient
                     drawArc(
                         brush = Brush.sweepGradient(
                             listOf(
                                 phaseColor,
-                                phaseColor.copy(alpha = 0.8f),
+                                themeAccent,
                                 phaseColor
                             )
                         ),
                         startAngle = -90f,
                         sweepAngle = 360f * animatedProgress,
                         useCenter = false,
-                        style = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 12.dp.toPx(), cap = StrokeCap.Round)
                     )
                 }
 
@@ -358,65 +388,68 @@ fun PomodoroScreen(
                         text = roomState.phase.title.uppercase(),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 11.sp,
-                        letterSpacing = 2.sp,
+                        letterSpacing = 1.5.sp,
                         color = phaseColor
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = timerText,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Black,
-                        fontSize = 54.sp,
-                        color = Color.White
+                        fontSize = 46.sp,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(8.dp)
+                                .size(7.dp)
                                 .clip(CircleShape)
                                 .background(if (roomState.isRunning) Color(0xFF10B981) else Color(0xFFEF4444))
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = if (roomState.isRunning) "In Session" else "Paused",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.7f)
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Cycle ${roomState.completedIntervals % 4 + 1}/4 • +25 StudyCoins",
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFFFBBF24)
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFD97706)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // PRIMARY CONTROLS
+            // ── COMPACT PRIMARY CONTROLS ─────────────────────────────────────
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
+                // Reset Button (Compact 38dp)
                 IconButton(
                     onClick = { PomodoroRepository.resetTimer(roomId) },
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.12f))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = "Reset",
-                        tint = Color.White
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(20.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
+                // Play / Pause Button (Compact 40dp Pill)
                 Button(
                     onClick = {
                         if (roomState.isRunning) {
@@ -426,57 +459,58 @@ fun PomodoroScreen(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = phaseColor),
-                    shape = RoundedCornerShape(26.dp),
-                    modifier = Modifier
-                        .height(54.dp)
-                        .padding(horizontal = 8.dp)
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp)
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 14.dp)
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = if (roomState.isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (roomState.isRunning) "Pause" else "Start",
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(18.dp),
                             tint = Color.White
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (roomState.isRunning) "PAUSE" else "FOCUS TOGETHER",
+                            text = if (roomState.isRunning) "PAUSE" else "START FOCUS",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
+                            fontSize = 13.sp,
                             color = Color.White
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(20.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
+                // Skip Button (Compact 38dp)
                 IconButton(
                     onClick = { PomodoroRepository.skipPhase(roomId) },
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.12f))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Skip",
-                        tint = Color.White
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
-            // AMBIENT SOUNDSCAPE BAR
+            // ── AMBIENT SOUNDSCAPE BAR ───────────────────────────────────────
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f))
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -486,7 +520,7 @@ fun PomodoroScreen(
                             Icon(
                                 imageVector = Icons.Default.Headphones,
                                 contentDescription = null,
-                                tint = Color(0xFF60A5FA),
+                                tint = phaseColor,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -494,57 +528,58 @@ fun PomodoroScreen(
                                 "Ambient Study Soundscape",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
 
                         TextButton(
                             onClick = { showStoreDialog = true },
-                            contentPadding = PaddingValues(0.dp)
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                         ) {
-                            Text(if (isProUser) "EduHub Pro 💎" else "Unlock Pro 👑", fontSize = 11.sp, color = Color(0xFFF59E0B))
+                            Text("Rewards Shop 🛍️", fontSize = 11.sp, color = Color(0xFFD97706), fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(PomodoroRepository.getAmbientSounds()) { sound ->
                             val isSelected = selectedSoundId == sound.id
+                            val isUnlocked = PomodoroRepository.isItemPurchased(currentUser?.id ?: "", sound.id)
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(RoundedCornerShape(10.dp))
                                     .background(
-                                        if (isSelected) Color(0xFF2563EB).copy(alpha = 0.4f)
-                                        else Color.White.copy(alpha = 0.06f)
+                                        if (isSelected) phaseColor.copy(alpha = 0.12f)
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                     )
                                     .border(
                                         width = 1.dp,
-                                        color = if (isSelected) Color(0xFF60A5FA) else Color.Transparent,
-                                        shape = RoundedCornerShape(12.dp)
+                                        color = if (isSelected) phaseColor else Color.Transparent,
+                                        shape = RoundedCornerShape(10.dp)
                                     )
                                     .clickable {
-                                        if (sound.isProOnly && !isProUser) {
+                                        if (!isUnlocked) {
                                             showStoreDialog = true
                                         } else {
                                             selectedSoundId = sound.id
                                             Toast.makeText(context, "Soundscape: " + sound.title, Toast.LENGTH_SHORT).show()
                                         }
                                     }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(sound.iconEmoji, fontSize = 14.sp)
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(sound.iconEmoji, fontSize = 13.sp)
+                                    Spacer(modifier = Modifier.width(5.dp))
                                     Text(
                                         sound.title,
-                                        fontSize = 12.sp,
+                                        fontSize = 11.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = Color.White
+                                        color = if (isSelected) phaseColor else MaterialTheme.colorScheme.onSurface
                                     )
-                                    if (sound.isProOnly && !isProUser) {
+                                    if (!isUnlocked) {
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("👑", fontSize = 10.sp)
+                                        Text("🔒", fontSize = 9.sp)
                                     }
                                 }
                             }
@@ -553,15 +588,16 @@ fun PomodoroScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // LIVE STUDY SQUAD PRESENCE (Multi-User Roster)
+            // ── LIVE STUDY SQUAD PRESENCE (Multi-User Roster) ────────────────
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f))
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -570,46 +606,46 @@ fun PomodoroScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(8.dp)
+                                    .size(7.dp)
                                     .clip(CircleShape)
                                     .background(Color(0xFF10B981))
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "Live Study Squad (" + roomState.participants.size.toString() + " Online)",
+                                "Live Study Squad (${roomState.participants.size} Online)",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
 
                         TextButton(
                             onClick = { showStatusDialog = true },
-                            contentPadding = PaddingValues(0.dp)
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
                         ) {
-                            Text("Set Status ✍️", fontSize = 11.sp, color = Color(0xFF60A5FA))
+                            Text("Set Status ✍️", fontSize = 11.sp, color = EduHubPrimary)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     if (roomState.participants.isEmpty()) {
                         Text(
-                            "You are currently studying solo. Share the room link to invite classmates!",
-                            fontSize = 12.sp,
-                            color = Color.White.copy(alpha = 0.5f)
+                            "You are currently studying solo. Share the room code to invite classmates!",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(roomState.participants) { participant ->
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.width(68.dp)
+                                    modifier = Modifier.width(64.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.BottomEnd) {
                                         Box(
                                             modifier = Modifier
-                                                .size(44.dp)
+                                                .size(40.dp)
                                                 .clip(CircleShape)
                                                 .border(2.dp, phaseColor, CircleShape)
                                         ) {
@@ -632,34 +668,34 @@ fun PomodoroScreen(
 
                                         Box(
                                             modifier = Modifier
-                                                .size(11.dp)
+                                                .size(10.dp)
                                                 .clip(CircleShape)
                                                 .background(Color(0xFF10B981))
-                                                .border(1.5.dp, Color(0xFF0B1329), CircleShape)
+                                                .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Spacer(modifier = Modifier.height(3.dp))
 
                                     Text(
                                         text = participant.userName,
-                                        fontSize = 11.sp,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = Color.White,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         maxLines = 1,
                                         textAlign = TextAlign.Center
                                     )
 
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(Color.White.copy(alpha = 0.1f))
-                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
                                     ) {
                                         Text(
                                             text = participant.status,
-                                            fontSize = 9.sp,
-                                            color = Color(0xFF93C5FD),
+                                            fontSize = 8.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1
                                         )
                                     }
@@ -670,133 +706,523 @@ fun PomodoroScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 
+    // ── STUDYCOIN SHOP & REWARDS STORE DIALOG ────────────────────────────────
     if (showStoreDialog) {
-        AlertDialog(
+        var selectedStoreTab by remember { mutableStateOf(0) }
+        val tabs = listOf("🎨 Themes", "🎧 Sounds", "🏆 Badges", "⚡ Boosters", "💎 Pro Plan")
+        val shopItems = remember { PomodoroRepository.getShopCatalog() }
+
+        Dialog(
             onDismissRequest = { showStoreDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.WorkspacePremium,
-                        contentDescription = null,
-                        tint = Color(0xFFF59E0B),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("EduHub Pro & Rewards Store", fontWeight = FontWeight.Bold)
-                }
-            },
-            text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                        "Earn StudyCoins by completing uninterrupted 25-minute Pomodoro focus cycles. Spend them to unlock ambient sounds and pro themes, or subscribe to EduHub Pro!",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.94f)
+                    .fillMaxHeight(0.85f),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(18.dp)
+                ) {
+                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.WorkspacePremium,
+                                contentDescription = null,
+                                tint = Color(0xFFD97706),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "StudyCoin Rewards Store",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showStoreDialog = false },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Text("✕", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // User Stats Bar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Card(
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                         ) {
-                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("🪙 Coins", fontSize = 11.sp)
-                                Text("$coinsBalance", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFFD97706))
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("🪙 Balance", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("$coinsBalance", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFD97706))
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
-
                         Card(
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                         ) {
-                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("🔥 Streak", fontSize = 11.sp)
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("🔥 Streak", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 val streak = if (currentUser != null) PomodoroRepository.getDailyStreak(currentUser.id) else 3
-                                Text(streak.toString() + " Days", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFFEA580C))
+                                Text("$streak Days", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFEA580C))
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
-
                         Card(
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
                         ) {
-                            Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("⏱️ Focused", fontSize = 11.sp)
+                            Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("⏱️ Focused", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 val minutes = if (currentUser != null) PomodoroRepository.getTotalFocusMinutes(currentUser.id) else 75
-                                Text(minutes.toString() + "m", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF2563EB))
+                                Text("${minutes}m", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = EduHubPrimary)
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Text("💎 EduHub Pro Plan", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E3A8A).copy(alpha = 0.1f))
+                    // Tab Row
+                    ScrollableTabRow(
+                        selectedTabIndex = selectedStoreTab,
+                        edgePadding = 0.dp,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text("• Unlock all 10+ Ambient Soundscapes (Rain, Cafe, Binaural)", fontSize = 12.sp)
-                            Text("• Zen Forest, Cyberpunk & OLED Dark Timer Themes", fontSize = 12.sp)
-                            Text("• Detailed Productivity Analytics & Exam Readiness Heatmap", fontSize = 12.sp)
-                            Text("• Verified Campus Study Badge on Group & Profile", fontSize = 12.sp)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("RM 7.00 / Month", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = EduHubPrimary)
-                                if (isProUser) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(Color(0xFF059669).copy(alpha = 0.15f))
-                                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                        tabs.forEachIndexed { index, title ->
+                            Tab(
+                                selected = selectedStoreTab == index,
+                                onClick = { selectedStoreTab = index },
+                                text = { Text(title, fontSize = 12.sp, fontWeight = if (selectedStoreTab == index) FontWeight.Bold else FontWeight.Normal) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Tab Content
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        when (selectedStoreTab) {
+                            0 -> { // Themes
+                                val items = shopItems.filter { it.category == ShopCategory.THEMES }
+                                items.forEach { item ->
+                                    val isPurchased = purchasedItemIds.contains(item.id)
+                                    val isEquipped = equippedThemeId == item.id
+                                    val itemTheme = item.themeData
+
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isEquipped) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        )
                                     ) {
-                                        Text("PRO ACTIVE 💎", fontWeight = FontWeight.Bold, color = Color(0xFF059669), fontSize = 12.sp)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                if (itemTheme != null) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(28.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color(itemTheme.primaryColorHex))
+                                                            .border(2.dp, Color(itemTheme.accentColorHex), CircleShape)
+                                                    )
+                                                } else {
+                                                    Text(item.iconEmoji, fontSize = 20.sp)
+                                                }
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column {
+                                                    Text(item.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    Text(item.description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(8.dp))
+
+                                            if (isEquipped) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFF059669).copy(alpha = 0.15f))
+                                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text("✓ Equipped", color = Color(0xFF059669), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                }
+                                            } else if (isPurchased) {
+                                                Button(
+                                                    onClick = {
+                                                        if (currentUser != null) {
+                                                            PomodoroRepository.setEquippedThemeId(currentUser.id, item.id)
+                                                            equippedThemeId = item.id
+                                                            Toast.makeText(context, "${item.title} equipped!", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Text("Equip", fontSize = 11.sp)
+                                                }
+                                            } else {
+                                                Button(
+                                                    onClick = {
+                                                        if (currentUser != null) {
+                                                            val success = PomodoroRepository.purchaseItem(currentUser.id, item.id, item.priceCoins)
+                                                            if (success) {
+                                                                coinsBalance = PomodoroRepository.getStudyCoins(currentUser.id)
+                                                                purchasedItemIds = PomodoroRepository.getPurchasedItemIds(currentUser.id)
+                                                                PomodoroRepository.setEquippedThemeId(currentUser.id, item.id)
+                                                                equippedThemeId = item.id
+                                                                Toast.makeText(context, "Unlocked & Equipped ${item.title}!", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "Not enough StudyCoins! Earn more by studying.", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Text("Buy ${item.priceCoins} 🪙", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
                                     }
-                                } else {
-                                    Button(
-                                        onClick = {
-                                            showStoreDialog = false
-                                            onNavigateToPayment()
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
-                                        shape = RoundedCornerShape(10.dp)
+                                }
+                            }
+                            1 -> { // Sounds
+                                val items = shopItems.filter { it.category == ShopCategory.SOUNDS }
+                                items.forEach { item ->
+                                    val isPurchased = purchasedItemIds.contains(item.id)
+                                    val isSelected = selectedSoundId == item.id
+
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        )
                                     ) {
-                                        Text("Upgrade with TNG", fontWeight = FontWeight.Bold, color = Color.White)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                Text(item.iconEmoji, fontSize = 22.sp)
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column {
+                                                    Text(item.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    Text(item.description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(8.dp))
+
+                                            if (isSelected) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFF059669).copy(alpha = 0.15f))
+                                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text("✓ Active", color = Color(0xFF059669), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                }
+                                            } else if (isPurchased) {
+                                                Button(
+                                                    onClick = {
+                                                        selectedSoundId = item.id
+                                                        Toast.makeText(context, "${item.title} selected!", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Text("Play", fontSize = 11.sp)
+                                                }
+                                            } else {
+                                                Button(
+                                                    onClick = {
+                                                        if (currentUser != null) {
+                                                            val success = PomodoroRepository.purchaseItem(currentUser.id, item.id, item.priceCoins)
+                                                            if (success) {
+                                                                coinsBalance = PomodoroRepository.getStudyCoins(currentUser.id)
+                                                                purchasedItemIds = PomodoroRepository.getPurchasedItemIds(currentUser.id)
+                                                                selectedSoundId = item.id
+                                                                Toast.makeText(context, "Unlocked ${item.title}!", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "Not enough StudyCoins!", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Text("Buy ${item.priceCoins} 🪙", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            2 -> { // Badges
+                                val items = shopItems.filter { it.category == ShopCategory.BADGES }
+
+                                items.forEach { item ->
+                                    val isPurchased = purchasedItemIds.contains(item.id)
+                                    val isEquipped = equippedBadge == item.badgeTitle
+
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (isEquipped) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                Text(item.iconEmoji, fontSize = 22.sp)
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column {
+                                                    Text(item.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    Text(item.description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(8.dp))
+
+                                            if (isEquipped) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFF7C3AED).copy(alpha = 0.15f))
+                                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text("✓ Equipped", color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                }
+                                            } else if (isPurchased) {
+                                                Button(
+                                                    onClick = {
+                                                        if (currentUser != null) {
+                                                            PomodoroRepository.setEquippedBadge(currentUser.id, item.badgeTitle)
+                                                            equippedBadge = item.badgeTitle
+                                                            Toast.makeText(context, "Equipped ${item.title} to Profile!", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Text("Equip", fontSize = 11.sp)
+                                                }
+                                            } else {
+                                                Button(
+                                                    onClick = {
+                                                        if (currentUser != null) {
+                                                            val success = PomodoroRepository.purchaseItem(currentUser.id, item.id, item.priceCoins)
+                                                            if (success) {
+                                                                coinsBalance = PomodoroRepository.getStudyCoins(currentUser.id)
+                                                                purchasedItemIds = PomodoroRepository.getPurchasedItemIds(currentUser.id)
+                                                                PomodoroRepository.setEquippedBadge(currentUser.id, item.badgeTitle)
+                                                                equippedBadge = item.badgeTitle
+                                                                Toast.makeText(context, "Unlocked & Equipped ${item.title}!", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "Not enough StudyCoins!", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Text("Buy ${item.priceCoins} 🪙", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            3 -> { // Boosters
+                                val items = shopItems.filter { it.category == ShopCategory.BOOSTERS }
+                                items.forEach { item ->
+                                    val isActive = currentUser != null && PomodoroRepository.hasActiveBooster(currentUser.id, item.id)
+
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                Text(item.iconEmoji, fontSize = 22.sp)
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column {
+                                                    Text(item.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    Text(item.description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(8.dp))
+
+                                            if (isActive) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFF059669).copy(alpha = 0.15f))
+                                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                                ) {
+                                                    Text("✓ Active", color = Color(0xFF059669), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                                }
+                                            } else {
+                                                Button(
+                                                    onClick = {
+                                                        if (currentUser != null) {
+                                                            val success = PomodoroRepository.purchaseItem(currentUser.id, item.id, item.priceCoins)
+                                                            if (success) {
+                                                                PomodoroRepository.activateBooster(currentUser.id, item.id)
+                                                                coinsBalance = PomodoroRepository.getStudyCoins(currentUser.id)
+                                                                purchasedItemIds = PomodoroRepository.getPurchasedItemIds(currentUser.id)
+                                                                Toast.makeText(context, "${item.title} activated!", Toast.LENGTH_SHORT).show()
+                                                            } else {
+                                                                Toast.makeText(context, "Not enough StudyCoins!", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(34.dp)
+                                                ) {
+                                                    Text("Get ${item.priceCoins} 🪙", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            4 -> { // Pro Plan
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = EduHubPrimary.copy(alpha = 0.08f))
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp)) {
+                                        Text("EduHub Pro Membership 💎", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = EduHubPrimary)
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text("• Unlimited access to all premium sounds & themes", fontSize = 12.sp)
+                                        Text("• 2x StudyCoins booster automatically enabled", fontSize = 12.sp)
+                                        Text("• Verified Campus Study Badge on squad rosters", fontSize = 12.sp)
+                                        Text("• Exam Readiness Heatmap and priority AI hints", fontSize = 12.sp)
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text("Price", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Text("RM 7.00 / mo", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = EduHubPrimary)
+                                            }
+
+                                            if (isProUser) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(Color(0xFF059669).copy(alpha = 0.15f))
+                                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                                ) {
+                                                    Text("PRO ACTIVE 💎", fontWeight = FontWeight.Bold, color = Color(0xFF059669), fontSize = 12.sp)
+                                                }
+                                            } else {
+                                                Button(
+                                                    onClick = {
+                                                        showStoreDialog = false
+                                                        onNavigateToPayment()
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
+                                                    shape = RoundedCornerShape(10.dp)
+                                                ) {
+                                                    Text("Upgrade with TNG", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showStoreDialog = false }) {
-                    Text("Close")
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    TextButton(
+                        onClick = { showStoreDialog = false },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Done")
+                    }
                 }
             }
-        )
+        }
     }
 
+    // ── SHARE ROOM DIALOG ────────────────────────────────────────────────────
     if (showShareDialog) {
         val shareLink = "eduhub://pomodoro/join/$roomId"
         AlertDialog(
@@ -805,12 +1231,11 @@ fun PomodoroScreen(
             text = {
                 Column {
                     Text(
-                        "Share this link with classmates so they can synchronize focus sessions and study together:",
+                        "Share this code with classmates so they can synchronize focus sessions and study together:",
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Short Room Code Card with copy button
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
@@ -832,7 +1257,7 @@ fun PomodoroScreen(
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 18.sp,
-                                    color = Color(0xFF2563EB)
+                                    color = phaseColor
                                 )
                             }
                             IconButton(
@@ -845,50 +1270,8 @@ fun PomodoroScreen(
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = "Copy Room Code",
-                                    tint = Color(0xFF2563EB),
+                                    tint = phaseColor,
                                     modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Full Link",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = shareLink,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Pomodoro Link", shareLink))
-                                    Toast.makeText(context, "Room link copied to clipboard!", Toast.LENGTH_SHORT).show()
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy Link",
-                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -924,6 +1307,7 @@ fun PomodoroScreen(
         )
     }
 
+    // ── STATUS DIALOG ────────────────────────────────────────────────────────
     if (showStatusDialog) {
         val statusOptions = listOf(
             "Focusing 🎯",
@@ -964,6 +1348,7 @@ fun PomodoroScreen(
         )
     }
 
+    // ── RENAME DIALOG ────────────────────────────────────────────────────────
     if (showRenameDialog) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },

@@ -367,23 +367,48 @@ fun ProfileScreen(
                 }
             }
 
-            // Role Badge
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        if (currentUser?.role == UserRole.LECTURER) EduHubAccentOrange.copy(
-                            alpha = 0.15f
-                        ) else EduHubAccentGreen.copy(alpha = 0.15f)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            val equippedBadge = if (currentUser != null) com.example.eduhub20.data.repository.PomodoroRepository.getEquippedBadge(currentUser.id) else null
+
+            // Badges Row
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (currentUser?.role == UserRole.LECTURER) "LECTURER PORTAL" else "STUDENT ACADEMIC PASS",
-                    color = if (currentUser?.role == UserRole.LECTURER) EduHubAccentOrange else EduHubAccentGreen,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
-                )
+                // Role Badge
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            if (currentUser?.role == UserRole.LECTURER) EduHubAccentOrange.copy(
+                                alpha = 0.15f
+                            ) else EduHubAccentGreen.copy(alpha = 0.15f)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (currentUser?.role == UserRole.LECTURER) "LECTURER PORTAL" else "STUDENT ACADEMIC PASS",
+                        color = if (currentUser?.role == UserRole.LECTURER) EduHubAccentOrange else EduHubAccentGreen,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
+
+                if (!equippedBadge.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF7C3AED).copy(alpha = 0.15f))
+                            .border(1.dp, Color(0xFF7C3AED).copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = equippedBadge,
+                            color = Color(0xFF7C3AED),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))

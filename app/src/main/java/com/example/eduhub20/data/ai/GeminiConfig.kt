@@ -18,6 +18,9 @@ object GeminiConfig {
     // Official recommended multimodal model endpoint
     const val GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
 
+    /** True when a Gemini API key is configured — gates all AI features. */
+    val isAvailable: Boolean get() = GEMINI_API_KEY.isNotBlank()
+
     fun init(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val savedKey = prefs.getString(KEY_API_KEY, "") ?: ""
